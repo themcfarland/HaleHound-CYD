@@ -47,6 +47,7 @@
 #include "radio_test.h"
 #include "iot_recon.h"
 #include "rfid_attacks.h"
+#include "jam_detect.h"
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GLOBAL OBJECTS
@@ -73,13 +74,14 @@ unsigned long last_interaction_time = 0;
 // MENU DEFINITIONS - EXACT MATCH TO ORIGINAL ESP32-DIV
 // ═══════════════════════════════════════════════════════════════════════════
 
-const int NUM_MENU_ITEMS = 9;
+const int NUM_MENU_ITEMS = 10;
 const char *menu_items[NUM_MENU_ITEMS] = {
     "WiFi",
     "Bluetooth",
     "2.4GHz",
     "SubGHz",
     "RFID",
+    "Jam Detect",
     "SIGINT",
     "Tools",
     "Setting",
@@ -92,6 +94,7 @@ const unsigned char *bitmap_icons[NUM_MENU_ITEMS] = {
     bitmap_icon_skull_jammer,
     bitmap_icon_skull_subghz,
     bitmap_icon_skull_rfid,
+    bitmap_icon_skull_tools,
     bitmap_icon_skull_ir,
     bitmap_icon_skull_tools,
     bitmap_icon_skull_setting,
@@ -205,6 +208,24 @@ const unsigned char *rfid_submenu_icons[rfid_NUM_SUBMENU_ITEMS] = {
     bitmap_icon_floppy,
     bitmap_icon_key,
     bitmap_icon_rfid,
+    bitmap_icon_go_back
+};
+
+// Jam Detect Submenu - 5 items
+const int jamdetect_NUM_SUBMENU_ITEMS = 5;
+const char *jamdetect_submenu_items[jamdetect_NUM_SUBMENU_ITEMS] = {
+    "WiFi Guardian",
+    "SubGHz Sentinel",
+    "2.4GHz Watchdog",
+    "Full Spectrum",
+    "Back to Main Menu"
+};
+
+const unsigned char *jamdetect_submenu_icons[jamdetect_NUM_SUBMENU_ITEMS] = {
+    bitmap_icon_skull_wifi,      // WiFi Guardian
+    bitmap_icon_skull_subghz,    // SubGHz Sentinel
+    bitmap_icon_skull_jammer,    // 2.4GHz Watchdog
+    bitmap_icon_analyzer,        // Full Spectrum
     bitmap_icon_go_back
 };
 
@@ -369,22 +390,27 @@ void updateActiveSubmenu() {
             active_submenu_size = rfid_NUM_SUBMENU_ITEMS;
             active_submenu_icons = rfid_submenu_icons;
             break;
-        case 5: // SIGINT
+        case 5: // Jam Detect
+            active_submenu_items = jamdetect_submenu_items;
+            active_submenu_size = jamdetect_NUM_SUBMENU_ITEMS;
+            active_submenu_icons = jamdetect_submenu_icons;
+            break;
+        case 6: // SIGINT
             active_submenu_items = sigint_submenu_items;
             active_submenu_size = sigint_NUM_SUBMENU_ITEMS;
             active_submenu_icons = sigint_submenu_icons;
             break;
-        case 6: // Tools
+        case 7: // Tools
             active_submenu_items = tools_submenu_items;
             active_submenu_size = tools_NUM_SUBMENU_ITEMS;
             active_submenu_icons = tools_submenu_icons;
             break;
-        case 7: // Settings
+        case 8: // Settings
             active_submenu_items = settings_submenu_items;
             active_submenu_size = settings_NUM_SUBMENU_ITEMS;
             active_submenu_icons = settings_submenu_icons;
             break;
-        case 8: // About
+        case 9: // About
             active_submenu_items = about_submenu_items;
             active_submenu_size = about_NUM_SUBMENU_ITEMS;
             active_submenu_icons = about_submenu_icons;
@@ -479,7 +505,7 @@ void displayMenu() {
         // Flaming skulls watermark - pushed down behind menu
         tft.drawBitmap(0, 0, skull_bg_bitmap, SKULL_BG_WIDTH, SKULL_BG_HEIGHT, 0x2945);  // Dark cyan watermark
 
-        // Draw menu buttons — left column (0-4): 5 items, right column (5-8): 4 items
+        // Draw menu buttons — left column (0-4): 5 items, right column (5-9): 5 items
         for (int i = 0; i < NUM_MENU_ITEMS; i++) {
             int column = (i < 5) ? 0 : 1;
             int row = (i < 5) ? i : (i - 5);
@@ -1163,6 +1189,89 @@ void handleRFIDSubmenuTouch() {
                         if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
                     }
                     RFIDEmulate::cleanup();
+                    break;
+            }
+
+            returnToSubmenu();
+            break;
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// JAM DETECT SUBMENU HANDLER
+// ═══════════════════════════════════════════════════════════════════════════
+
+void handleJamDetectSubmenuTouch() {
+    touchButtonsUpdate();
+
+    if (isBackButtonTapped()) {
+        returnToMainMenu();
+        return;
+    }
+
+    for (int i = 0; i < active_submenu_size; i++) {
+        int yPos = SUBMENU_Y_START + i * SUBMENU_Y_SPACING;
+        if (i == active_submenu_size - 1) yPos += SUBMENU_LAST_GAP;
+
+        if (isTouchInArea(10, yPos, SUBMENU_TOUCH_W, SUBMENU_TOUCH_H)) {
+            current_submenu_index = i;
+            last_interaction_time = millis();
+            displaySubmenu();
+            delay(200);
+
+            if (current_submenu_index == 4) { // Back
+                returnToMainMenu();
+                return;
+            }
+
+            feature_active = true;
+            feature_exit_requested = false;
+
+            switch (current_submenu_index) {
+                case 0: // WiFi Guardian
+                    WiFiGuardian::setup();
+                    while (!feature_exit_requested) {
+                        WiFiGuardian::loop();
+                        if (WiFiGuardian::isExitRequested()) feature_exit_requested = true;
+                        touchButtonsUpdate();
+                        if (isBackButtonTapped()) feature_exit_requested = true;
+                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                    }
+                    WiFiGuardian::cleanup();
+                    break;
+                case 1: // SubGHz Sentinel
+                    SubSentinel::setup();
+                    while (!feature_exit_requested) {
+                        SubSentinel::loop();
+                        if (SubSentinel::isExitRequested()) feature_exit_requested = true;
+                        touchButtonsUpdate();
+                        if (isBackButtonTapped()) feature_exit_requested = true;
+                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                    }
+                    SubSentinel::cleanup();
+                    break;
+                case 2: // 2.4GHz Watchdog
+                    GHzWatchdog::setup();
+                    while (!feature_exit_requested) {
+                        GHzWatchdog::loop();
+                        if (GHzWatchdog::isExitRequested()) feature_exit_requested = true;
+                        touchButtonsUpdate();
+                        if (isBackButtonTapped()) feature_exit_requested = true;
+                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                    }
+                    GHzWatchdog::cleanup();
+                    break;
+                case 3: // Full Spectrum
+                    FullSpectrum::setup();
+                    while (!feature_exit_requested) {
+                        FullSpectrum::loop();
+                        if (FullSpectrum::isExitRequested()) feature_exit_requested = true;
+                        touchButtonsUpdate();
+                        if (isBackButtonTapped()) feature_exit_requested = true;
+                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                    }
+                    FullSpectrum::cleanup();
                     break;
             }
 
@@ -2306,10 +2415,11 @@ void handleButtons() {
             case 2: handleNRFSubmenuTouch(); break;
             case 3: handleSubGHzSubmenuTouch(); break;
             case 4: handleRFIDSubmenuTouch(); break;
-            case 5: handleSIGINTSubmenuTouch(); break;
-            case 6: handleToolsSubmenuTouch(); break;
-            case 7: handleSettingsSubmenuTouch(); break;
-            case 8: handleAboutPage(); break;
+            case 5: handleJamDetectSubmenuTouch(); break;
+            case 6: handleSIGINTSubmenuTouch(); break;
+            case 7: handleToolsSubmenuTouch(); break;
+            case 8: handleSettingsSubmenuTouch(); break;
+            case 9: handleAboutPage(); break;
             default: break;
         }
     } else {
