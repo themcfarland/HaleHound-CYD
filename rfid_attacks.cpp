@@ -1660,12 +1660,26 @@ static int hexNibble = 0;
 #define EMU_TITLE_Y      55
 #define EMU_SEP_Y        68
 #define EMU_UID_Y        82
-#define EMU_HELP_Y       108
-#define EMU_STATUS_Y     168
+#define EMU_BTN_Y        110
+#define EMU_EMU_BTN_Y    170
+#define EMU_STATUS_Y     208
 #define EMU_READER_Y     (SCREEN_HEIGHT - 40)
 
-static void drawEmulateUI() {
+// Button geometry
+#define EMU_ARROW_W      50
+#define EMU_ARROW_H      28
+#define EMU_EMU_W        140
+#define EMU_EMU_H        32
+
+// Touch debounce
+static unsigned long emuLastTouch = 0;
+static const unsigned long EMU_TOUCH_MS = 200;
+
+static void drawUidDisplay() {
     int y = EMU_UID_Y;
+
+    // Clear UID area
+    tft.fillRect(8, y - 5, SCREEN_WIDTH - 16, 24, TFT_BLACK);
 
     // UID display in rounded frame
     tft.drawRoundRect(8, y - 4, SCREEN_WIDTH - 16, 22, 3, HALEHOUND_VIOLET);
@@ -1678,7 +1692,6 @@ static void drawEmulateUI() {
 
     for (int i = 0; i < 4; i++) {
         if (i == hexCursor) {
-            // Highlighted cursor byte — inverted colors
             tft.setTextColor(TFT_BLACK, HALEHOUND_HOTPINK);
         } else {
             tft.setTextColor(HALEHOUND_BRIGHT, TFT_BLACK);
@@ -1687,41 +1700,67 @@ static void drawEmulateUI() {
         tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
         if (i < 3) tft.print(":");
     }
+}
 
-    // Control instructions
-    drawRFIDSeparator(EMU_HELP_Y - 6);
-    y = EMU_HELP_Y;
+static void drawArrowButton(int x, int y, int w, int h, const char* label, uint16_t color) {
+    tft.fillRoundRect(x, y, w, h, 4, HALEHOUND_DARK);
+    tft.drawRoundRect(x, y, w, h, 4, color);
+    tft.setTextSize(TEXT_SIZE_BODY);
+    tft.setTextColor(color);
+    int tw = strlen(label) * TEXT_CHAR_W;
+    tft.setCursor(x + (w - tw) / 2, y + (h - 8) / 2);
+    tft.print(label);
+}
 
-    tft.setTextColor(HALEHOUND_VIOLET, TFT_BLACK);
-    tft.setCursor(14, y);
-    tft.print("UP/DOWN");
-    tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
-    tft.print("    change value");
+static void drawEmulateButtons() {
+    int midX = SCREEN_WIDTH / 2;
 
-    y += 14;
-    tft.setTextColor(HALEHOUND_VIOLET, TFT_BLACK);
-    tft.setCursor(14, y);
-    tft.print("LEFT/RIGHT");
-    tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
-    tft.print(" move cursor");
+    // Row 1: LEFT / UP / DOWN / RIGHT
+    int row1Y = EMU_BTN_Y;
+    int gap = 6;
+    int totalW = EMU_ARROW_W * 4 + gap * 3;
+    int startX = (SCREEN_WIDTH - totalW) / 2;
 
-    y += 14;
-    tft.setTextColor(HALEHOUND_VIOLET, TFT_BLACK);
-    tft.setCursor(14, y);
-    tft.print("SELECT");
-    tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
-    tft.print("     start emulation");
+    drawArrowButton(startX,                          row1Y, EMU_ARROW_W, EMU_ARROW_H, "< L", HALEHOUND_VIOLET);
+    drawArrowButton(startX + EMU_ARROW_W + gap,      row1Y, EMU_ARROW_W, EMU_ARROW_H, "UP",  HALEHOUND_CYAN);
+    drawArrowButton(startX + (EMU_ARROW_W + gap) * 2, row1Y, EMU_ARROW_W, EMU_ARROW_H, "DN",  HALEHOUND_CYAN);
+    drawArrowButton(startX + (EMU_ARROW_W + gap) * 3, row1Y, EMU_ARROW_W, EMU_ARROW_H, "R >", HALEHOUND_VIOLET);
 
+    // Row 2: +16 / -16 (fast scroll full byte)
+    int row2Y = row1Y + EMU_ARROW_H + 6;
+    int halfW = (SCREEN_WIDTH - 30) / 2;
+    drawArrowButton(10,            row2Y, halfW, EMU_ARROW_H, "+16", HALEHOUND_MAGENTA);
+    drawArrowButton(10 + halfW + 10, row2Y, halfW, EMU_ARROW_H, "-16", HALEHOUND_MAGENTA);
+
+    // EMULATE / STOP button
+    int emuX = (SCREEN_WIDTH - EMU_EMU_W) / 2;
+    if (emulating) {
+        tft.fillRoundRect(emuX, EMU_EMU_BTN_Y, EMU_EMU_W, EMU_EMU_H, 5, HALEHOUND_HOTPINK);
+        tft.setTextColor(TFT_BLACK);
+        tft.setTextSize(TEXT_SIZE_BODY);
+        int tw = 4 * TEXT_CHAR_W; // "STOP"
+        tft.setCursor(emuX + (EMU_EMU_W - tw) / 2, EMU_EMU_BTN_Y + (EMU_EMU_H - 8) / 2);
+        tft.print("STOP");
+    } else {
+        tft.fillRoundRect(emuX, EMU_EMU_BTN_Y, EMU_EMU_W, EMU_EMU_H, 5, HALEHOUND_GREEN);
+        tft.setTextColor(TFT_BLACK);
+        tft.setTextSize(TEXT_SIZE_BODY);
+        int tw = 7 * TEXT_CHAR_W; // "EMULATE"
+        tft.setCursor(emuX + (EMU_EMU_W - tw) / 2, EMU_EMU_BTN_Y + (EMU_EMU_H - 8) / 2);
+        tft.print("EMULATE");
+    }
+}
+
+static void drawEmulateStatus() {
+    tft.fillRect(0, EMU_STATUS_Y - 6, SCREEN_WIDTH, SCREEN_HEIGHT - EMU_STATUS_Y + 6, TFT_BLACK);
     drawRFIDSeparator(EMU_STATUS_Y - 6);
 
     if (emulating) {
-        // Pulsing "EMULATING" text
         drawCenteredRFID(EMU_STATUS_Y, "EMULATING...", HALEHOUND_GREEN);
         drawCenteredRFID(EMU_STATUS_Y + 16, "Waiting for reader", HALEHOUND_MAGENTA);
 
-        // Animated radio waves (static draw)
         int cx = SCREEN_WIDTH / 2;
-        int cy = EMU_STATUS_Y + 50;
+        int cy = EMU_STATUS_Y + 46;
         for (int r = 0; r < 3; r++) {
             uint16_t col = rfidGradientColor((float)r / 3.0f);
             tft.drawCircle(cx, cy, 10 + r * 12, col);
@@ -1729,6 +1768,106 @@ static void drawEmulateUI() {
         }
     } else {
         drawCenteredRFID(EMU_STATUS_Y, "Ready to emulate", HALEHOUND_GUNMETAL);
+    }
+}
+
+static void drawEmulateUI() {
+    drawUidDisplay();
+    drawEmulateButtons();
+    drawRFIDSeparator(EMU_STATUS_Y - 6);
+    drawEmulateStatus();
+}
+
+static void handleEmulateTouch() {
+    if (!isTouched()) return;
+    if (millis() - emuLastTouch < EMU_TOUCH_MS) return;
+
+    int tx = getTouchX();
+    int ty = getTouchY();
+    if (tx < 0 || ty < 0) return;
+
+    emuLastTouch = millis();
+
+    // Row 1: LEFT / UP / DOWN / RIGHT
+    int gap = 6;
+    int totalW = EMU_ARROW_W * 4 + gap * 3;
+    int startX = (SCREEN_WIDTH - totalW) / 2;
+
+    if (ty >= EMU_BTN_Y && ty <= EMU_BTN_Y + EMU_ARROW_H) {
+        // LEFT
+        if (tx >= startX && tx <= startX + EMU_ARROW_W) {
+            hexCursor = (hexCursor > 0) ? hexCursor - 1 : 3;
+            drawUidDisplay();
+            waitForTouchRelease();
+            return;
+        }
+        // UP (+1)
+        if (tx >= startX + EMU_ARROW_W + gap && tx <= startX + EMU_ARROW_W * 2 + gap) {
+            emulUid[hexCursor]++;
+            drawUidDisplay();
+            waitForTouchRelease();
+            return;
+        }
+        // DOWN (-1)
+        if (tx >= startX + (EMU_ARROW_W + gap) * 2 && tx <= startX + EMU_ARROW_W * 3 + gap * 2) {
+            emulUid[hexCursor]--;
+            drawUidDisplay();
+            waitForTouchRelease();
+            return;
+        }
+        // RIGHT
+        if (tx >= startX + (EMU_ARROW_W + gap) * 3 && tx <= startX + EMU_ARROW_W * 4 + gap * 3) {
+            hexCursor = (hexCursor < 3) ? hexCursor + 1 : 0;
+            drawUidDisplay();
+            waitForTouchRelease();
+            return;
+        }
+    }
+
+    // Row 2: +16 / -16
+    int row2Y = EMU_BTN_Y + EMU_ARROW_H + 6;
+    int halfW = (SCREEN_WIDTH - 30) / 2;
+    if (ty >= row2Y && ty <= row2Y + EMU_ARROW_H) {
+        // +16
+        if (tx >= 10 && tx <= 10 + halfW) {
+            emulUid[hexCursor] += 16;
+            drawUidDisplay();
+            waitForTouchRelease();
+            return;
+        }
+        // -16
+        if (tx >= 10 + halfW + 10 && tx <= 10 + halfW * 2 + 10) {
+            emulUid[hexCursor] -= 16;
+            drawUidDisplay();
+            waitForTouchRelease();
+            return;
+        }
+    }
+
+    // EMULATE / STOP button
+    int emuX = (SCREEN_WIDTH - EMU_EMU_W) / 2;
+    if (tx >= emuX && tx <= emuX + EMU_EMU_W && ty >= EMU_EMU_BTN_Y && ty <= EMU_EMU_BTN_Y + EMU_EMU_H) {
+        emulating = !emulating;
+
+        if (emulating) {
+            // Configure PN532 as target with our UID
+            uint8_t command[] = {
+                0x00, 0x00,                                   // SENS_RES
+                emulUid[0], emulUid[1], emulUid[2],          // NFCID1 (3 bytes)
+                0x40                                          // SEL_RES (0x40 = tag emulation)
+            };
+            nfc.setPassiveActivationRetries(0xFF);
+            nfc.SAMConfig();
+            Serial.printf("[RFID] Emulating UID: %02X:%02X:%02X:%02X\n",
+                          emulUid[0], emulUid[1], emulUid[2], emulUid[3]);
+        } else {
+            Serial.println("[RFID] Emulation stopped");
+        }
+
+        drawEmulateButtons();
+        drawEmulateStatus();
+        waitForTouchRelease();
+        return;
     }
 }
 
@@ -1757,30 +1896,30 @@ void setup() {
 void loop() {
     if (exitRequested) return;
 
+    // Always handle touch (buttons work in both idle and emulating states)
+    handleEmulateTouch();
+
     if (emulating) {
+        // Pulsing EMULATING text
+        static unsigned long lastPulse = 0;
+        if (millis() - lastPulse > 200) {
+            lastPulse = millis();
+            tft.fillRect(10, EMU_STATUS_Y, SCREEN_WIDTH - 20, 12, TFT_BLACK);
+            tft.setTextColor(rfidPulseColor(millis()), TFT_BLACK);
+            int tw = TEXT_CHAR_W * 12;
+            tft.setCursor((SCREEN_WIDTH - tw) / 2, EMU_STATUS_Y);
+            tft.print("EMULATING...");
+        }
+
 #if RFID_DEMO_MODE
         // Demo: simulate a reader detection after 5 seconds
         static unsigned long emulDemoStart = 0;
         static bool emulDemoTriggered = false;
         if (emulDemoStart == 0) emulDemoStart = millis();
 
-        // Pulsing status while waiting
-        if (!emulDemoTriggered) {
-            static unsigned long lastPulse = 0;
-            if (millis() - lastPulse > 200) {
-                lastPulse = millis();
-                tft.fillRect(10, EMU_STATUS_Y, SCREEN_WIDTH - 20, 12, TFT_BLACK);
-                tft.setTextColor(rfidPulseColor(millis()), TFT_BLACK);
-                int tw = TEXT_CHAR_W * 12;
-                tft.setCursor((SCREEN_WIDTH - tw) / 2, EMU_STATUS_Y);
-                tft.print("EMULATING...");
-            }
-        }
-
         if (!emulDemoTriggered && millis() - emulDemoStart > 5000) {
             emulDemoTriggered = true;
 
-            // Flash effect
             drawCardFlash();
 
             tft.fillRect(10, EMU_READER_Y, SCREEN_WIDTH - 20, 32, TFT_BLACK);

@@ -268,7 +268,7 @@ HALEHOUND-CYD v3.2.0
 │   ├── BLE Scanner ............ Discover nearby BLE devices
 │   ├── WhisperPair ............ CVE-2025-36911 Fast Pair scanner
 │   ├── AirTag Detect .......... Apple FindMy tracker detection
-│   ├── Stalkerware Detect ..... Multi-platform tracker scanner
+│   ├── Lunatic Fringe ..... Multi-platform tracker scanner
 │   └── Back to Main Menu
 │
 ├── 2.4GHz (NRF24) ───────────────────────────────────────
@@ -516,7 +516,7 @@ Passive BLE scanner that detects AirTags, FindMy accessories, and compatible thi
 
 ---
 
-#### Stalkerware Detect — Multi-Platform BLE Tracker Scanner
+#### Lunatic Fringe — Multi-Platform BLE Tracker Scanner
 
 Scans for commercial BLE tracking devices across all major platforms. Identifies Google Find My Device Network (FMDN) trackers via service UUID `0xFEAA`, Samsung SmartTag via `0xFD5A`, Tile via `0xFEED`, Chipolo via `0xFE33`, and Apple AirTag via manufacturer ID `0x004C` with FindMy type bytes. Displays detected trackers in a scrollable list view with platform icon, name, RSSI proximity bars, and signal strength. Select any tracker for a detail view showing MAC address, platform, RSSI, battery level estimate, and status info. Auto-rescans every 5 seconds with alert flash on new tracker detection. Tracks up to 20 unique devices simultaneously.
 
@@ -1136,7 +1136,7 @@ GitHub: [github.com/JesseCHale/HaleHound-CYD](https://github.com/JesseCHale/Hale
 
 ### Community Contributors
 
-**Duggie** — Stalkerware Detect concept, EAPOL back button bug report
+**Duggie** — Lunatic Fringe concept, EAPOL back button bug report
 
 ---
 

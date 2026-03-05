@@ -11,7 +11,7 @@
 // GLOBAL OBJECTS
 // ═══════════════════════════════════════════════════════════════════════════
 
-RF24 nrf24Radio(NRF24_CE, NRF24_CSN);
+RF24 nrf24Radio(NRF24_CE, NRF24_CSN, 4000000);  // 4MHz SPI — ESP32+PA/LNA needs ≤4MHz (RF24 #992)
 NRF24Mode currentNRF24Mode = NRF24_MODE_OFF;
 uint8_t mouseJackerTarget[5] = {0, 0, 0, 0, 0};
 
@@ -72,6 +72,7 @@ bool nrf24Setup() {
     #endif
 
     nrf24ClaimSPI();
+    delay(150);  // Power supply settling — PA/LNA modules need time after SPI init
 
     if (!nrf24Radio.begin()) {
         #if CYD_DEBUG

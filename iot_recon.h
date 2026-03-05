@@ -10,7 +10,7 @@
 //
 // ATTACK PIPELINE:
 // +------------------------------------------------------------------------+
-// | DISCOVER - TCP connect scan: 554, 80, 8080, 23, 1883, 502             |
+// | DISCOVER - TCP connect scan: 554,80,8080,23,1883,502,443,34567        |
 // | IDENTIFY - Banner grab + fingerprint device type from response         |
 // | ATTACK   - Auto-select: camera brute, MQTT dump, telnet creds, modbus |
 // | REPORT   - Color-coded kill feed + SD card log                         |
@@ -31,7 +31,7 @@
 // =============================================================================
 
 #define IOT_MAX_DEVICES     64
-#define IOT_MAX_PORTS       6
+#define IOT_MAX_PORTS       8
 #define IOT_MAX_BANNER_LEN  48
 #define IOT_MAX_CRED_USER   16
 #define IOT_MAX_CRED_PASS   16
@@ -72,7 +72,7 @@ enum IotScanPhase : uint8_t {
 
 struct IotDevice {
     uint8_t  ip[4];                         // Device IP
-    uint8_t  openPorts;                     // Bitmask: bit0=554, bit1=80, bit2=8080, bit3=23, bit4=1883, bit5=502
+    uint8_t  openPorts;                     // Bitmask: bit0=554, bit1=80, bit2=8080, bit3=23, bit4=1883, bit5=502, bit6=443, bit7=34567
     IotDeviceType  type;
     IotDeviceStatus status;
     char     banner[IOT_MAX_BANNER_LEN];    // Fingerprint / model string

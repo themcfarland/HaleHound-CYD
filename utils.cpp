@@ -332,7 +332,7 @@ String getElapsedTimeString(uint32_t startMillis) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #define EEPROM_SIZE 512
-#define EEPROM_MAGIC 0xCD07   // Bumped from 0xCD06 — added color mode field
+#define EEPROM_MAGIC 0xCD08   // Bumped from 0xCD07 — added PIN lock
 
 // Globals defined in HaleHound-CYD.ino
 extern int brightness_level;
@@ -340,6 +340,8 @@ extern int screen_timeout_seconds;
 extern bool color_order_rgb;
 extern bool display_inverted;
 extern uint8_t color_mode;
+extern uint16_t device_pin;
+extern bool pin_enabled;
 extern TFT_eSPI tft;
 
 struct Settings {
@@ -358,6 +360,8 @@ struct Settings {
     uint8_t rotation;          // TFT rotation: 0 = Standard, 2 = Flipped 180
     uint8_t displayInverted;   // 0 = normal, 1 = inverted (for 2USB/inverted panels)
     uint8_t colorMode;         // 0 = Default, 1 = Colorblind, 2 = High Contrast
+    uint8_t pinEnabled;        // 0 = disabled, 1 = PIN lock active
+    uint16_t devicePin;        // 4-digit PIN stored as 0-9999
 };
 
 static Settings settings;
@@ -384,6 +388,8 @@ void saveSettings() {
     settings.rotation = screen_rotation;
     settings.displayInverted = display_inverted ? 1 : 0;
     settings.colorMode = color_mode;
+    settings.pinEnabled = pin_enabled ? 1 : 0;
+    settings.devicePin = device_pin;
 
     EEPROM.begin(EEPROM_SIZE);
     EEPROM.put(0, settings);
@@ -418,10 +424,14 @@ void loadSettings() {
         settings.rotation = 0;         // Standard portrait (USB down)
         settings.displayInverted = 0;  // Normal (no inversion)
         settings.colorMode = 0;        // Default color palette
+        settings.pinEnabled = 0;       // PIN lock disabled by default
+        settings.devicePin = 0;        // No PIN set
 
         // Apply defaults to globals so they're not left uninitialized
         brightness_level = settings.brightness;
         screen_timeout_seconds = settings.screenTimeout;
+        pin_enabled = false;
+        device_pin = 0;
 
         // Write defaults to EEPROM immediately — prevents re-triggering on every boot
         EEPROM.begin(EEPROM_SIZE);
@@ -439,6 +449,8 @@ void loadSettings() {
         color_order_rgb = (settings.colorSwap == 1);
         display_inverted = (settings.displayInverted == 1);
         color_mode = (settings.colorMode <= 2) ? settings.colorMode : 0;
+        pin_enabled = (settings.pinEnabled == 1);
+        device_pin = (settings.devicePin <= 9999) ? settings.devicePin : 0;
 
         // Apply rotation to global
         extern uint8_t screen_rotation;
