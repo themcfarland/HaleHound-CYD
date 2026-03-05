@@ -332,7 +332,7 @@ String getElapsedTimeString(uint32_t startMillis) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #define EEPROM_SIZE 512
-#define EEPROM_MAGIC 0xCD08   // Bumped from 0xCD07 — added PIN lock
+#define EEPROM_MAGIC 0xCD09   // Bumped from 0xCD08 — added VALHALLA protocol + disclaimer
 
 // Globals defined in HaleHound-CYD.ino
 extern int brightness_level;
@@ -342,6 +342,8 @@ extern bool display_inverted;
 extern uint8_t color_mode;
 extern uint16_t device_pin;
 extern bool pin_enabled;
+extern bool disclaimer_accepted;
+extern bool blue_team_mode;
 extern TFT_eSPI tft;
 
 struct Settings {
@@ -362,6 +364,8 @@ struct Settings {
     uint8_t colorMode;         // 0 = Default, 1 = Colorblind, 2 = High Contrast
     uint8_t pinEnabled;        // 0 = disabled, 1 = PIN lock active
     uint16_t devicePin;        // 4-digit PIN stored as 0-9999
+    uint8_t disclaimerAccepted; // 0 = not accepted, 1 = accepted (VALHALLA protocol)
+    uint8_t blueTeamMode;      // 0 = normal, 1 = blue team (defensive only)
 };
 
 static Settings settings;
@@ -390,6 +394,8 @@ void saveSettings() {
     settings.colorMode = color_mode;
     settings.pinEnabled = pin_enabled ? 1 : 0;
     settings.devicePin = device_pin;
+    settings.disclaimerAccepted = disclaimer_accepted ? 1 : 0;
+    settings.blueTeamMode = blue_team_mode ? 1 : 0;
 
     EEPROM.begin(EEPROM_SIZE);
     EEPROM.put(0, settings);
@@ -426,12 +432,16 @@ void loadSettings() {
         settings.colorMode = 0;        // Default color palette
         settings.pinEnabled = 0;       // PIN lock disabled by default
         settings.devicePin = 0;        // No PIN set
+        settings.disclaimerAccepted = 0; // Disclaimer not accepted — forces first-time screen
+        settings.blueTeamMode = 0;     // Normal mode (not blue team)
 
         // Apply defaults to globals so they're not left uninitialized
         brightness_level = settings.brightness;
         screen_timeout_seconds = settings.screenTimeout;
         pin_enabled = false;
         device_pin = 0;
+        disclaimer_accepted = false;
+        blue_team_mode = false;
 
         // Write defaults to EEPROM immediately — prevents re-triggering on every boot
         EEPROM.begin(EEPROM_SIZE);
@@ -451,6 +461,8 @@ void loadSettings() {
         color_mode = (settings.colorMode <= 2) ? settings.colorMode : 0;
         pin_enabled = (settings.pinEnabled == 1);
         device_pin = (settings.devicePin <= 9999) ? settings.devicePin : 0;
+        disclaimer_accepted = (settings.disclaimerAccepted == 1);
+        blue_team_mode = (settings.blueTeamMode == 1);
 
         // Apply rotation to global
         extern uint8_t screen_rotation;

@@ -56,6 +56,10 @@
 
 TFT_eSPI tft = TFT_eSPI();
 
+// VALHALLA Protocol accent colors — screen-local, NOT changing global theme
+#define VALHALLA_BLUE  0x541F
+#define VALHALLA_PURPLE 0x780F
+
 // Menu state - matches original ESP32-DIV
 int current_menu_index = 0;
 int current_submenu_index = 0;
@@ -325,6 +329,10 @@ uint16_t device_pin = 0;       // 4-digit PIN (0-9999), stored as number
 bool pin_enabled = false;       // PIN lock feature on/off
 bool device_locked = false;     // Current lock state (not persisted)
 
+// VALHALLA Protocol — Liability disclaimer + blue team mode
+bool disclaimer_accepted = false;   // Legal disclaimer accepted (persisted in EEPROM)
+bool blue_team_mode = false;        // VALHALLA blue team mode active (persisted in EEPROM)
+
 // Timeout option tables
 const int timeoutOptions[] = {30, 60, 120, 300, 600, 0};
 const char* timeoutLabels[] = {"30 SEC", "1 MIN", "2 MIN", "5 MIN", "10 MIN", "NEVER"};
@@ -573,6 +581,44 @@ void displayMenu() {
         last_menu_index = current_menu_index;
     }
 
+    // VALHALLA / BLUE TEAM banner — bottom of home screen
+    {
+        int barY = SCREEN_HEIGHT - 22;
+        int barH = 20;
+        bool btm = blue_team_mode;
+        uint16_t borderOuter = btm ? VALHALLA_BLUE : HALEHOUND_MAGENTA;
+        uint16_t borderInner = btm ? VALHALLA_BLUE : HALEHOUND_VIOLET;
+
+        // Bar background + double border
+        tft.fillRect(2, barY, SCREEN_WIDTH - 4, barH, HALEHOUND_DARK);
+        tft.drawRect(2, barY, SCREEN_WIDTH - 4, barH, borderOuter);
+        tft.drawRect(4, barY + 2, SCREEN_WIDTH - 8, barH - 4, borderInner);
+
+        // Nosifer 10pt glitch text centered
+        const char* label = btm ? "BLUE TEAM" : "VALHALLA";
+        tft.setFreeFont(&Nosifer_Regular10pt7b);
+        int tw = tft.textWidth(label);
+        int tx = (SCREEN_WIDTH - tw) / 2;
+        int ty = barY + 16;
+
+        // Glitch pass 1
+        tft.setTextColor(btm ? VALHALLA_BLUE : HALEHOUND_MAGENTA);
+        tft.setCursor(tx - 1, ty - 1);
+        tft.print(label);
+
+        // Glitch pass 2
+        tft.setTextColor(btm ? VALHALLA_PURPLE : HALEHOUND_HOTPINK);
+        tft.setCursor(tx + 1, ty + 1);
+        tft.print(label);
+
+        // Glitch pass 3: main text
+        tft.setTextColor(TFT_WHITE);
+        tft.setCursor(tx, ty);
+        tft.print(label);
+
+        tft.setFreeFont(NULL);
+    }
+
     // Lock icon — top-right corner, only when PIN is enabled
     if (pin_enabled) {
         tft.drawBitmap(SCREEN_WIDTH - 20, 2, bitmap_icon_eye2, 16, 16, HALEHOUND_HOTPINK);
@@ -651,6 +697,11 @@ void handleWiFiSubmenuTouch() {
                     PacketMonitor::cleanup();
                     break;
                 case 1: // Beacon Spammer
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     BeaconSpammer::setup();
                     while (!feature_exit_requested) {
                         BeaconSpammer::loop();
@@ -660,6 +711,11 @@ void handleWiFiSubmenuTouch() {
                     BeaconSpammer::cleanup();
                     break;
                 case 2: // Deauther
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     Deauther::setup();
                     while (!feature_exit_requested) {
                         Deauther::loop();
@@ -749,6 +805,11 @@ void handleWiFiSubmenuTouch() {
                     }
                     break;
                 case 5: // Captive Portal (GARMR Evil Twin)
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     CaptivePortal::setup();
                     while (!feature_exit_requested) {
                         CaptivePortal::loop();
@@ -787,6 +848,11 @@ void handleWiFiSubmenuTouch() {
                     }
                     break;
                 case 7: // Auth Flood
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     AuthFlood::setup();
                     while (!feature_exit_requested) {
                         AuthFlood::loop();
@@ -837,6 +903,11 @@ void handleBluetoothSubmenuTouch() {
 
             switch (current_submenu_index) {
                 case 0: // BLE Jammer
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     BleJammer::setup();
                     while (!feature_exit_requested) {
                         BleJammer::loop();
@@ -848,6 +919,11 @@ void handleBluetoothSubmenuTouch() {
                     BleJammer::cleanup();
                     break;
                 case 1: // BLE Spoofer
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     BleSpoofer::setup();
                     while (!feature_exit_requested) {
                         BleSpoofer::loop();
@@ -890,6 +966,11 @@ void handleBluetoothSubmenuTouch() {
                     BleScan::cleanup();
                     break;
                 case 5: // WhisperPair (CVE-2025-36911)
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     WhisperPair::setup();
                     while (!feature_exit_requested) {
                         WhisperPair::loop();
@@ -978,6 +1059,11 @@ void handleNRFSubmenuTouch() {
                     Analyzer::cleanup();
                     break;
                 case 2: // WLAN Jammer
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     WLANJammer::wlanjammerSetup();
                     while (!feature_exit_requested) {
                         WLANJammer::wlanjammerLoop();
@@ -987,6 +1073,11 @@ void handleNRFSubmenuTouch() {
                     WLANJammer::cleanup();
                     break;
                 case 3: // Proto Kill
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     ProtoKill::prokillSetup();
                     while (!feature_exit_requested) {
                         ProtoKill::prokillLoop();
@@ -1035,6 +1126,11 @@ void handleSubGHzSubmenuTouch() {
 
             switch (current_submenu_index) {
                 case 0: // Replay Attack
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     ReplayAttack::setup();
                     while (!feature_exit_requested) {
                         ReplayAttack::loop();
@@ -1045,6 +1141,11 @@ void handleSubGHzSubmenuTouch() {
                     ReplayAttack::cleanup();
                     break;
                 case 1: // Brute Force
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     SubBrute::setup();
                     while (!feature_exit_requested) {
                         SubBrute::loop();
@@ -1056,6 +1157,11 @@ void handleSubGHzSubmenuTouch() {
                     SubBrute::cleanup();
                     break;
                 case 2: // SubGHz Jammer
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     SubJammer::setup();
                     while (!feature_exit_requested) {
                         SubJammer::loop();
@@ -1168,6 +1274,11 @@ void handleRFIDSubmenuTouch() {
                     RFIDReader::cleanup();
                     break;
                 case 2: // Card Clone
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     RFIDClone::setup();
                     while (!feature_exit_requested) {
                         RFIDClone::loop();
@@ -1180,6 +1291,11 @@ void handleRFIDSubmenuTouch() {
                     RFIDClone::cleanup();
                     break;
                 case 3: // Key Brute Force
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     RFIDBrute::setup();
                     while (!feature_exit_requested) {
                         RFIDBrute::loop();
@@ -1192,6 +1308,11 @@ void handleRFIDSubmenuTouch() {
                     RFIDBrute::cleanup();
                     break;
                 case 4: // Card Emulate
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     RFIDEmulate::setup();
                     while (!feature_exit_requested) {
                         RFIDEmulate::loop();
@@ -1326,6 +1447,11 @@ void handleSIGINTSubmenuTouch() {
 
             switch (current_submenu_index) {
                 case 0: // EAPOL Capture
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     EapolCapture::setup();
                     while (!feature_exit_requested) {
                         EapolCapture::loop();
@@ -1337,6 +1463,11 @@ void handleSIGINTSubmenuTouch() {
                     EapolCapture::cleanup();
                     break;
                 case 1: // Karma Attack
+                    if (!isOffensiveAllowed()) {
+                        if (blue_team_mode) { showBlueTeamBlockedScreen(); if (!showDisclaimerScreen()) break; }
+                        else if (!showDisclaimerScreen()) break;
+                        if (!isOffensiveAllowed()) break;
+                    }
                     KarmaAttack::setup();
                     while (!feature_exit_requested) {
                         KarmaAttack::loop();
@@ -2880,6 +3011,454 @@ void pinSetupLoop() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// VALHALLA PROTOCOL — Legal Disclaimer + Blue Team Mode + Panic Button
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Check if offensive functions are allowed
+bool isOffensiveAllowed() {
+    if (blue_team_mode) return false;
+    return disclaimer_accepted;
+}
+
+// ─── Blue Team Blocked Screen (2-second overlay) ────────────────────────
+void showBlueTeamBlockedScreen() {
+    tft.fillScreen(TFT_BLACK);
+
+    // Skull watermark — very dark
+    tft.drawBitmap(0, 0, skull_bg_bitmap, SKULL_BG_WIDTH, SKULL_BG_HEIGHT, 0x1841);
+
+    // Double border
+    tft.drawRect(2, 2, SCREEN_WIDTH - 4, SCREEN_HEIGHT - 4, VALHALLA_BLUE);
+    tft.drawRect(4, 4, SCREEN_WIDTH - 8, SCREEN_HEIGHT - 8, HALEHOUND_VIOLET);
+
+    // Title — glitch in electric blue
+    drawGlitchTitle(100, "BLUE TEAM");
+    drawGlitchStatus(125, "MODE ACTIVE", HALEHOUND_VIOLET);
+
+    // Info text
+    drawCenteredText(160, "Offensive functions disabled", HALEHOUND_MAGENTA, 1);
+    drawCenteredText(180, "VALHALLA protocol engaged", HALEHOUND_GUNMETAL, 1);
+
+    // Hint to unlock
+    drawCenteredText(220, "Tap offensive tool to unlock", HALEHOUND_GUNMETAL, 1);
+    drawCenteredText(235, "via disclaimer acceptance", HALEHOUND_GUNMETAL, 1);
+
+    delay(2000);
+}
+
+// ─── Legal Disclaimer Screen ────────────────────────────────────────────
+// Returns true if user accepted, false if declined
+bool showDisclaimerScreen() {
+    // Disclaimer text lines
+    const char* disclaimerLines[] = {
+        "This device contains offensive",
+        "security tools. By proceeding",
+        "you accept FULL personal",
+        "liability for all actions.",
+        "",
+        "Unauthorized use of jamming,",
+        "deauth, replay, and exploit",
+        "tools violates federal law.",
+        "",
+        "Use ONLY on systems you own",
+        "or have written permission",
+        "to test.",
+        "",
+        "47 U.S.C. 333 - Jamming",
+        "18 U.S.C. 1030 - CFAA",
+        "",
+        "YOU HAVE BEEN WARNED."
+    };
+    const int numLines = 17;
+    const int visibleLines = 5;
+    const int lineHeight = 12;
+    int scrollOffset = 0;
+    int maxScroll = numLines - visibleLines;
+    if (maxScroll < 0) maxScroll = 0;
+
+    // Text area Y bounds
+    const int textAreaY = 210;
+    const int textAreaH = visibleLines * lineHeight;
+
+    auto drawDisclaimerPage = [&]() {
+        tft.fillScreen(TFT_BLACK);
+
+        // Skull watermark — very dark
+        tft.drawBitmap(0, 0, skull_bg_bitmap, SKULL_BG_WIDTH, SKULL_BG_HEIGHT, 0x1841);
+
+        // Double border — violet outer, magenta inner
+        tft.drawRect(2, 2, SCREEN_WIDTH - 4, SCREEN_HEIGHT - 4, HALEHOUND_VIOLET);
+        tft.drawRect(4, 4, SCREEN_WIDTH - 8, SCREEN_HEIGHT - 8, HALEHOUND_MAGENTA);
+
+        // Disclaimer skull centered at top
+        int skullX = (SCREEN_WIDTH - 120) / 2;
+        tft.drawBitmap(skullX, 10, bitmap_disclaimer_skull, 120, 160, VALHALLA_BLUE);
+
+        // Title — glitch Nosifer
+        drawGlitchTitle(175, "LIABILITY");
+        drawGlitchStatus(195, "DISCLAIMER", HALEHOUND_VIOLET);
+
+        // Separator line
+        tft.drawLine(20, 205, SCREEN_WIDTH - 20, 205, HALEHOUND_VIOLET);
+    };
+
+    auto drawTextArea = [&]() {
+        // Clear text area
+        tft.fillRect(8, textAreaY, SCREEN_WIDTH - 16, textAreaH, TFT_BLACK);
+
+        tft.setTextSize(1);
+        for (int i = 0; i < visibleLines && (scrollOffset + i) < numLines; i++) {
+            int lineIdx = scrollOffset + i;
+            const char* line = disclaimerLines[lineIdx];
+
+            // Legal citations in violet, rest in magenta
+            bool isCitation = (strstr(line, "U.S.C.") != NULL);
+            bool isWarning = (strcmp(line, "YOU HAVE BEEN WARNED.") == 0);
+
+            if (isCitation) {
+                tft.setTextColor(HALEHOUND_VIOLET, TFT_BLACK);
+            } else if (isWarning) {
+                tft.setTextColor(HALEHOUND_HOTPINK, TFT_BLACK);
+            } else {
+                tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
+            }
+
+            // Center each line
+            int tw = strlen(line) * 6;
+            int tx = (SCREEN_WIDTH - tw) / 2;
+            if (tx < 8) tx = 8;
+            tft.setCursor(tx, textAreaY + i * lineHeight);
+            tft.print(line);
+        }
+
+        // Scroll indicator
+        if (maxScroll > 0) {
+            tft.setTextSize(1);
+            tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
+            if (scrollOffset < maxScroll) {
+                tft.setCursor(SCREEN_WIDTH - 20, textAreaY + textAreaH - 10);
+                tft.print("v");
+            }
+            if (scrollOffset > 0) {
+                tft.setCursor(SCREEN_WIDTH - 20, textAreaY);
+                tft.print("^");
+            }
+        }
+    };
+
+    auto drawButtons = [&]() {
+        // Separator above buttons
+        tft.drawLine(20, 275, SCREEN_WIDTH - 20, 275, HALEHOUND_VIOLET);
+
+        // ACCEPT button — left side
+        int btnW = 95;
+        int btnH = 32;
+        int btnY = 282;
+        int acceptX = 15;
+        int declineX = SCREEN_WIDTH - btnW - 15;
+
+        tft.fillRoundRect(acceptX, btnY, btnW, btnH, 5, HALEHOUND_DARK);
+        tft.drawRoundRect(acceptX, btnY, btnW, btnH, 5, VALHALLA_PURPLE);
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_HOTPINK);
+        tft.setCursor(acceptX + 20, btnY + 12);
+        tft.print("ACCEPT");
+
+        // DECLINE button — right side
+        tft.fillRoundRect(declineX, btnY, btnW, btnH, 5, HALEHOUND_DARK);
+        tft.drawRoundRect(declineX, btnY, btnW, btnH, 5, HALEHOUND_GUNMETAL);
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_GUNMETAL);
+        tft.setCursor(declineX + 15, btnY + 12);
+        tft.print("DECLINE");
+    };
+
+    drawDisclaimerPage();
+    drawTextArea();
+    drawButtons();
+
+    // Auto-scroll timer
+    unsigned long lastAutoScroll = millis();
+    const unsigned long autoScrollInterval = 3000;  // 3 seconds per scroll
+
+    while (true) {
+        touchButtonsUpdate();
+
+        // BOOT button = decline
+        if (buttonPressed(BTN_BOOT)) {
+            delay(200);
+            return false;
+        }
+
+        // Auto-scroll
+        if (maxScroll > 0 && scrollOffset < maxScroll) {
+            if (millis() - lastAutoScroll > autoScrollInterval) {
+                scrollOffset++;
+                drawTextArea();
+                lastAutoScroll = millis();
+            }
+        }
+
+        // Touch handling
+        uint16_t tx, ty;
+        if (getTouchPoint(&tx, &ty)) {
+            consumeTouch();
+
+            int btnW = 95;
+            int btnH = 32;
+            int btnY = 282;
+            int acceptX = 15;
+            int declineX = SCREEN_WIDTH - btnW - 15;
+
+            // ACCEPT button
+            if (tx >= acceptX && tx <= acceptX + btnW && ty >= btnY && ty <= btnY + btnH) {
+                // Flash button
+                tft.fillRoundRect(acceptX, btnY, btnW, btnH, 5, VALHALLA_PURPLE);
+                tft.setTextColor(TFT_WHITE);
+                tft.setCursor(acceptX + 20, btnY + 12);
+                tft.print("ACCEPT");
+                delay(300);
+
+                disclaimer_accepted = true;
+                if (blue_team_mode) {
+                    blue_team_mode = false;
+                }
+                saveSettings();
+                return true;
+            }
+
+            // DECLINE button
+            if (tx >= declineX && tx <= declineX + btnW && ty >= btnY && ty <= btnY + btnH) {
+                delay(200);
+                return false;
+            }
+
+            // Scroll down — tap bottom half of text area
+            if (ty >= textAreaY && ty <= textAreaY + textAreaH) {
+                if (ty > textAreaY + textAreaH / 2 && scrollOffset < maxScroll) {
+                    scrollOffset++;
+                    drawTextArea();
+                    lastAutoScroll = millis();
+                } else if (ty <= textAreaY + textAreaH / 2 && scrollOffset > 0) {
+                    scrollOffset--;
+                    drawTextArea();
+                    lastAutoScroll = millis();
+                }
+                delay(200);
+            }
+        }
+
+        delay(30);
+    }
+}
+
+// ─── SD Card Recursive Wipe ─────────────────────────────────────────────
+void recursiveDeleteSD(File dir) {
+    while (true) {
+        File entry = dir.openNextFile();
+        if (!entry) break;
+
+        if (entry.isDirectory()) {
+            recursiveDeleteSD(entry);
+            SD.rmdir(entry.name());
+        } else {
+            SD.remove(entry.name());
+        }
+        entry.close();
+    }
+}
+
+// ─── VALHALLA Protocol Activation ───────────────────────────────────────
+void activateValhalla() {
+    // Phase 1: Confirmation screen
+    tft.fillScreen(TFT_BLACK);
+
+    // Skull watermark — dark red
+    tft.drawBitmap(0, 0, skull_bg_bitmap, SKULL_BG_WIDTH, SKULL_BG_HEIGHT, 0x1841);
+
+    // Double border — violet + electric blue
+    tft.drawRect(2, 2, SCREEN_WIDTH - 4, SCREEN_HEIGHT - 4, HALEHOUND_VIOLET);
+    tft.drawRect(4, 4, SCREEN_WIDTH - 8, SCREEN_HEIGHT - 8, VALHALLA_BLUE);
+
+    // Disclaimer skull centered — pulsing red
+    int skullX = (SCREEN_WIDTH - 120) / 2;
+    tft.drawBitmap(skullX, 10, bitmap_disclaimer_skull, 120, 160, TFT_RED);
+
+    // Title
+    drawGlitchTitle(175, "VALHALLA");
+    drawGlitchStatus(195, "PROTOCOL", HALEHOUND_VIOLET);
+
+    // Separator
+    tft.drawLine(20, 207, SCREEN_WIDTH - 20, 207, TFT_RED);
+
+    // Warning text
+    drawCenteredText(215, "ACTIVATE SCORCHED EARTH?", HALEHOUND_HOTPINK, 1);
+    tft.setTextSize(1);
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.setCursor(30, 232);
+    tft.print("- Wipe SD card");
+    tft.setCursor(30, 244);
+    tft.print("- Lock all offensive tools");
+    tft.setCursor(30, 256);
+    tft.print("- Enter Blue Team mode");
+
+    // Separator
+    tft.drawLine(20, 268, SCREEN_WIDTH - 20, 268, HALEHOUND_VIOLET);
+
+    // HOLD TO CONFIRM button (left)
+    int confirmX = 10;
+    int confirmW = 130;
+    int confirmH = 32;
+    int confirmY = 275;
+    tft.fillRoundRect(confirmX, confirmY, confirmW, confirmH, 5, HALEHOUND_DARK);
+    tft.drawRoundRect(confirmX, confirmY, confirmW, confirmH, 5, TFT_RED);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_RED);
+    tft.setCursor(confirmX + 8, confirmY + 12);
+    tft.print("HOLD 3s CONFIRM");
+
+    // CANCEL button (right)
+    int cancelX = 150;
+    int cancelW = 80;
+    int cancelH = 32;
+    int cancelY = 275;
+    tft.fillRoundRect(cancelX, cancelY, cancelW, cancelH, 5, HALEHOUND_DARK);
+    tft.drawRoundRect(cancelX, cancelY, cancelW, cancelH, 5, HALEHOUND_GUNMETAL);
+    tft.setTextColor(HALEHOUND_GUNMETAL);
+    tft.setCursor(cancelX + 15, cancelY + 12);
+    tft.print("CANCEL");
+
+    // Hold-to-confirm logic
+    unsigned long holdStart = 0;
+    bool holding = false;
+    const unsigned long holdDuration = 3000;  // 3 seconds
+
+    while (true) {
+        touchButtonsUpdate();
+
+        // BOOT button = cancel
+        if (buttonPressed(BTN_BOOT)) {
+            delay(200);
+            return;
+        }
+
+        uint16_t tx, ty;
+        bool touched = getTouchPoint(&tx, &ty);
+
+        // Check CANCEL button
+        if (touched && tx >= cancelX && tx <= cancelX + cancelW &&
+            ty >= cancelY && ty <= cancelY + cancelH) {
+            consumeTouch();
+            delay(200);
+            return;
+        }
+
+        // Check CONFIRM button hold
+        if (touched && tx >= confirmX && tx <= confirmX + confirmW &&
+            ty >= confirmY && ty <= confirmY + confirmH) {
+            if (!holding) {
+                holdStart = millis();
+                holding = true;
+            }
+
+            // Draw progress bar inside button
+            unsigned long elapsed = millis() - holdStart;
+            int progress = map(min(elapsed, holdDuration), 0, holdDuration, 0, confirmW - 4);
+            tft.fillRect(confirmX + 2, confirmY + 2, progress, confirmH - 4, TFT_RED);
+
+            // Re-draw text on top of progress
+            tft.setTextSize(1);
+            tft.setTextColor(TFT_WHITE);
+            tft.setCursor(confirmX + 8, confirmY + 12);
+            tft.print("HOLD 3s CONFIRM");
+
+            if (elapsed >= holdDuration) {
+                // Confirmed! Flash white
+                tft.fillRoundRect(confirmX, confirmY, confirmW, confirmH, 5, TFT_WHITE);
+                delay(200);
+                break;  // Proceed to Phase 2
+            }
+        } else {
+            if (holding) {
+                // Released early — reset
+                holding = false;
+                tft.fillRoundRect(confirmX, confirmY, confirmW, confirmH, 5, HALEHOUND_DARK);
+                tft.drawRoundRect(confirmX, confirmY, confirmW, confirmH, 5, TFT_RED);
+                tft.setTextSize(1);
+                tft.setTextColor(TFT_RED);
+                tft.setCursor(confirmX + 8, confirmY + 12);
+                tft.print("HOLD 3s CONFIRM");
+            }
+        }
+
+        delay(30);
+    }
+
+    // Phase 2: Execution
+    tft.fillScreen(TFT_BLACK);
+    tft.drawBitmap(0, 0, skull_bg_bitmap, SKULL_BG_WIDTH, SKULL_BG_HEIGHT, 0x4000);  // Dark red watermark
+    tft.drawRect(2, 2, SCREEN_WIDTH - 4, SCREEN_HEIGHT - 4, TFT_RED);
+
+    drawGlitchTitle(60, "VALHALLA");
+
+    // Progress bar
+    int barX = 20;
+    int barY = 140;
+    int barW = SCREEN_WIDTH - 40;
+    int barH = 20;
+
+    auto updateProgress = [&](int percent, const char* status) {
+        // Status text
+        tft.fillRect(barX, barY - 20, barW, 18, TFT_BLACK);
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_HOTPINK);
+        tft.setCursor(barX, barY - 18);
+        tft.print(status);
+
+        // Progress bar
+        tft.drawRect(barX, barY, barW, barH, TFT_RED);
+        int fillW = map(percent, 0, 100, 0, barW - 2);
+        tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_RED);
+    };
+
+    // Step 1: Wipe SD card
+    updateProgress(10, "WIPING SD CARD...");
+    if (SD.begin(SD_CS)) {
+        File root = SD.open("/");
+        if (root) {
+            recursiveDeleteSD(root);
+            root.close();
+        }
+        SD.end();
+    }
+    updateProgress(40, "SD CARD WIPED");
+    delay(500);
+
+    // Step 2: Clear disclaimer
+    updateProgress(60, "LOCKING TOOLS...");
+    disclaimer_accepted = false;
+    delay(300);
+
+    // Step 3: Set blue team mode
+    updateProgress(80, "ENTERING BLUE TEAM...");
+    blue_team_mode = true;
+    delay(300);
+
+    // Step 4: Save to EEPROM
+    updateProgress(90, "SAVING STATE...");
+    saveSettings();
+    delay(300);
+
+    updateProgress(100, "VALHALLA COMPLETE");
+    delay(1000);
+
+    // Step 5: Reboot
+    drawCenteredText(200, "REBOOTING...", TFT_RED, 1);
+    delay(500);
+    ESP.restart();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MAIN BUTTON/TOUCH HANDLER
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2928,6 +3507,24 @@ void handleButtons() {
     } else {
         // Main menu touch handling
         touchButtonsUpdate();
+
+        // VALHALLA / BLUE TEAM banner tap — bottom bar
+        {
+            int barY = SCREEN_HEIGHT - 22;
+            if (isTouchInArea(2, barY, SCREEN_WIDTH - 4, 20)) {
+                consumeTouch();
+                // Flash border to hotpink on tap
+                tft.drawRect(2, barY, SCREEN_WIDTH - 4, 20, HALEHOUND_HOTPINK);
+                tft.drawRect(4, barY + 2, SCREEN_WIDTH - 8, 16, HALEHOUND_HOTPINK);
+                delay(150);
+                activateValhalla();
+                // If cancelled, redraw menu
+                menu_initialized = false;
+                displayMenu();
+                delay(200);
+                return;
+            }
+        }
 
         // Lock icon tap — manual lock (top-right corner)
         if (pin_enabled && isTouchInArea(SCREEN_WIDTH - 28, 0, 28, 22)) {

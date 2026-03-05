@@ -76,6 +76,10 @@ extern bool feature_exit_requested;
 extern bool gps_enabled;
 extern bool gps_has_fix;
 
+// VALHALLA PROTOCOL STATE
+extern bool disclaimer_accepted;    // Legal disclaimer accepted (persisted in EEPROM)
+extern bool blue_team_mode;         // VALHALLA blue team mode active (persisted in EEPROM)
+
 // ═══════════════════════════════════════════════════════════════════════════
 // FUNCTION DECLARATIONS
 // ═══════════════════════════════════════════════════════════════════════════
