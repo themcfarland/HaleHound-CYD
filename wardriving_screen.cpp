@@ -38,19 +38,26 @@ extern TFT_eSPI tft;
 #define WD_PHASE_WIFI  0
 #define WD_PHASE_BLE   1
 
-// Layout constants
+// Layout constants (scaled for 2.8"/3.5")
 #define WD_FRAME_X       5
-#define WD_FRAME_Y       62
-#define WD_FRAME_W       230
-#define WD_FRAME_H       52
-#define WD_STATS_Y       122
-#define WD_GPS_Y         158
-#define WD_SPEED_Y       184
-#define WD_FILE_Y        200
-#define WD_BTN_X         40
-#define WD_BTN_Y         260
-#define WD_BTN_W         160
-#define WD_BTN_H         40
+#define WD_FRAME_Y       SCALE_Y(62)
+#define WD_FRAME_W       (SCREEN_WIDTH - 10)
+#define WD_FRAME_H       SCALE_H(52)
+#define WD_STATS_Y       SCALE_Y(122)
+#define WD_GPS_Y         SCALE_Y(158)
+#define WD_SPEED_Y       SCALE_Y(184)
+#define WD_FILE_Y        SCALE_Y(200)
+#define WD_BTN_X         SCALE_X(40)
+#define WD_BTN_Y         SCALE_Y(260)
+#define WD_BTN_W         SCALE_W(160)
+#define WD_BTN_H         SCALE_H(40)
+// Column positions for stats labels/values
+#define WD_COL_R_LABEL   SCALE_X(125)
+#define WD_COL_R_VAL     SCALE_X(155)
+#define WD_COL_L_VAL1    SCALE_X(65)
+#define WD_COL_L_VAL2    SCALE_X(30)
+#define WD_COL_L_VAL3    SCALE_X(50)
+#define WD_COL_L_VAL4    SCALE_X(48)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MODULE STATE
@@ -87,16 +94,16 @@ static int wdBleResultCount = 0;
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void drawWDIconBar() {
-    tft.drawLine(0, 19, SCREEN_WIDTH, 19, HALEHOUND_MAGENTA);
-    tft.fillRect(0, 20, SCREEN_WIDTH, 16, HALEHOUND_DARK);
-    tft.drawBitmap(10, 20, bitmap_icon_go_back, 16, 16, HALEHOUND_MAGENTA);
-    tft.drawLine(0, 36, SCREEN_WIDTH, 36, HALEHOUND_HOTPINK);
+    tft.drawLine(0, ICON_BAR_TOP, SCREEN_WIDTH, ICON_BAR_TOP, HALEHOUND_MAGENTA);
+    tft.fillRect(0, ICON_BAR_Y, SCREEN_WIDTH, ICON_BAR_H, HALEHOUND_DARK);
+    tft.drawBitmap(10, ICON_BAR_Y, bitmap_icon_go_back, 16, 16, HALEHOUND_MAGENTA);
+    tft.drawLine(0, ICON_BAR_BOTTOM, SCREEN_WIDTH, ICON_BAR_BOTTOM, HALEHOUND_HOTPINK);
 }
 
 static bool isWDBackTapped() {
     uint16_t tx, ty;
     if (getTouchPoint(&tx, &ty)) {
-        if (ty >= 20 && ty <= 36 && tx >= 10 && tx < 30) {
+        if (ty >= ICON_BAR_Y && ty <= ICON_BAR_BOTTOM && tx >= 10 && tx < 30) {
             delay(150);
             return true;
         }
@@ -157,8 +164,8 @@ static void drawWDScreen() {
     drawWDIconBar();
 
     // Glitch title — Nosifer font
-    drawGlitchText(55, "WARDRIVING", &Nosifer_Regular10pt7b);
-    tft.drawLine(0, 58, SCREEN_WIDTH, 58, HALEHOUND_HOTPINK);
+    drawGlitchText(SCALE_Y(55), "WARDRIVING", &Nosifer_Regular10pt7b);
+    tft.drawLine(0, SCALE_Y(58), SCREEN_WIDTH, SCALE_Y(58), HALEHOUND_HOTPINK);
 
     // Main stats frame
     tft.drawRoundRect(WD_FRAME_X, WD_FRAME_Y, WD_FRAME_W, WD_FRAME_H, 6, HALEHOUND_VIOLET);
@@ -169,47 +176,47 @@ static void drawWDScreen() {
     tft.setTextColor(HALEHOUND_HOTPINK);
     tft.setCursor(10, WD_STATS_Y);
     tft.print("NETWORKS");
-    tft.setCursor(125, WD_STATS_Y);
+    tft.setCursor(WD_COL_R_LABEL, WD_STATS_Y);
     tft.print("OPEN");
 
     // Row 2: BLE / DUPES
-    tft.setCursor(10, WD_STATS_Y + 10);
+    tft.setCursor(10, WD_STATS_Y + SCALE_H(10));
     tft.print("BLE");
-    tft.setCursor(125, WD_STATS_Y + 10);
+    tft.setCursor(WD_COL_R_LABEL, WD_STATS_Y + SCALE_H(10));
     tft.print("DUPES");
 
     // Row 3: SCANS / STATUS
-    tft.setCursor(10, WD_STATS_Y + 20);
+    tft.setCursor(10, WD_STATS_Y + SCALE_H(20));
     tft.print("SCANS");
-    tft.setCursor(125, WD_STATS_Y + 20);
+    tft.setCursor(WD_COL_R_LABEL, WD_STATS_Y + SCALE_H(20));
     tft.print("STATUS");
 
     // Separator
-    tft.drawLine(WD_FRAME_X, WD_STATS_Y + 33, WD_FRAME_X + WD_FRAME_W, WD_STATS_Y + 33, HALEHOUND_HOTPINK);
+    tft.drawLine(WD_FRAME_X, WD_STATS_Y + SCALE_H(33), WD_FRAME_X + WD_FRAME_W, WD_STATS_Y + SCALE_H(33), HALEHOUND_HOTPINK);
 
     // GPS section labels
     tft.setTextColor(HALEHOUND_HOTPINK);
     tft.setCursor(10, WD_GPS_Y);
     tft.print("GPS");
-    tft.setCursor(125, WD_GPS_Y);
+    tft.setCursor(WD_COL_R_LABEL, WD_GPS_Y);
     tft.print("SATS");
-    tft.setCursor(10, WD_GPS_Y + 12);
+    tft.setCursor(10, WD_GPS_Y + SCALE_H(12));
     tft.print("LAT");
-    tft.setCursor(125, WD_GPS_Y + 12);
+    tft.setCursor(WD_COL_R_LABEL, WD_GPS_Y + SCALE_H(12));
     tft.print("LON");
 
     // Separator
-    tft.drawLine(WD_FRAME_X, WD_GPS_Y + 24, WD_FRAME_X + WD_FRAME_W, WD_GPS_Y + 24, HALEHOUND_HOTPINK);
+    tft.drawLine(WD_FRAME_X, WD_GPS_Y + SCALE_H(24), WD_FRAME_X + WD_FRAME_W, WD_GPS_Y + SCALE_H(24), HALEHOUND_HOTPINK);
 
     // Speed / Time labels
     tft.setTextColor(HALEHOUND_HOTPINK);
     tft.setCursor(10, WD_SPEED_Y);
     tft.print("SPEED");
-    tft.setCursor(125, WD_SPEED_Y);
+    tft.setCursor(WD_COL_R_LABEL, WD_SPEED_Y);
     tft.print("TIME");
 
     // Separator
-    tft.drawLine(WD_FRAME_X, WD_SPEED_Y + 12, WD_FRAME_X + WD_FRAME_W, WD_SPEED_Y + 12, HALEHOUND_HOTPINK);
+    tft.drawLine(WD_FRAME_X, WD_SPEED_Y + SCALE_H(12), WD_FRAME_X + WD_FRAME_W, WD_SPEED_Y + SCALE_H(12), HALEHOUND_HOTPINK);
 
     // File section label
     tft.setTextColor(HALEHOUND_HOTPINK);
@@ -240,13 +247,14 @@ static void updateWDValues() {
         tft.setTextColor(HALEHOUND_MAGENTA);
         snprintf(buf, sizeof(buf), "%lu", (unsigned long)stats.newNetworks);
         int16_t tw = tft.textWidth(buf);
-        tft.setCursor(WD_FRAME_X + (WD_FRAME_W - tw) / 2, WD_FRAME_Y + 38);
+        tft.setCursor(WD_FRAME_X + (WD_FRAME_W - tw) / 2, WD_FRAME_Y + SCALE_H(38));
         tft.print(buf);
         tft.setFreeFont(NULL);
     } else {
         tft.setFreeFont(&FreeMono9pt7b);
         tft.setTextColor(HALEHOUND_GUNMETAL);
-        tft.setCursor(WD_FRAME_X + 40, WD_FRAME_Y + 35);
+        int16_t idleTw = tft.textWidth("-- idle --");
+        tft.setCursor(WD_FRAME_X + (WD_FRAME_W - idleTw) / 2, WD_FRAME_Y + SCALE_H(35));
         tft.print("-- idle --");
         tft.setFreeFont(NULL);
     }
@@ -255,36 +263,36 @@ static void updateWDValues() {
     tft.setTextSize(1);
 
     // NETWORKS value
-    tft.fillRect(65, WD_STATS_Y, 55, 8, HALEHOUND_BLACK);
+    tft.fillRect(WD_COL_L_VAL1, WD_STATS_Y, SCALE_W(55), 8, HALEHOUND_BLACK);
     tft.setTextColor(stats.active ? HALEHOUND_MAGENTA : HALEHOUND_GUNMETAL);
-    tft.setCursor(65, WD_STATS_Y);
+    tft.setCursor(WD_COL_L_VAL1, WD_STATS_Y);
     tft.print(stats.newNetworks);
 
     // OPEN value
-    tft.fillRect(155, WD_STATS_Y, 75, 8, HALEHOUND_BLACK);
+    tft.fillRect(WD_COL_R_VAL, WD_STATS_Y, SCALE_W(75), 8, HALEHOUND_BLACK);
     tft.setTextColor(stats.active ? (stats.openNetworks > 0 ? HALEHOUND_HOTPINK : HALEHOUND_MAGENTA) : HALEHOUND_GUNMETAL);
-    tft.setCursor(155, WD_STATS_Y);
+    tft.setCursor(WD_COL_R_VAL, WD_STATS_Y);
     tft.print(stats.openNetworks);
 
     // ── Row 2: BLE value / DUPES value ──
 
     // BLE value
-    tft.fillRect(30, WD_STATS_Y + 10, 85, 8, HALEHOUND_BLACK);
+    tft.fillRect(WD_COL_L_VAL2, WD_STATS_Y + SCALE_H(10), SCALE_W(85), 8, HALEHOUND_BLACK);
     tft.setTextColor(stats.newBleDevices > 0 ? HALEHOUND_MAGENTA : HALEHOUND_GUNMETAL);
-    tft.setCursor(30, WD_STATS_Y + 10);
+    tft.setCursor(WD_COL_L_VAL2, WD_STATS_Y + SCALE_H(10));
     tft.print(stats.newBleDevices);
 
     // DUPES value (WiFi + BLE combined)
-    tft.fillRect(165, WD_STATS_Y + 10, 65, 8, HALEHOUND_BLACK);
+    tft.fillRect(SCALE_X(165), WD_STATS_Y + SCALE_H(10), SCALE_W(65), 8, HALEHOUND_BLACK);
     tft.setTextColor(stats.active ? HALEHOUND_MAGENTA : HALEHOUND_GUNMETAL);
-    tft.setCursor(165, WD_STATS_Y + 10);
+    tft.setCursor(SCALE_X(165), WD_STATS_Y + SCALE_H(10));
     tft.print(stats.duplicates + stats.bleDuplicates);
 
     // ── Row 3: SCANS value / STATUS value ──
 
     // SCANS value
-    tft.fillRect(50, WD_STATS_Y + 20, 65, 8, HALEHOUND_BLACK);
-    tft.setCursor(50, WD_STATS_Y + 20);
+    tft.fillRect(WD_COL_L_VAL3, WD_STATS_Y + SCALE_H(20), SCALE_W(65), 8, HALEHOUND_BLACK);
+    tft.setCursor(WD_COL_L_VAL3, WD_STATS_Y + SCALE_H(20));
     if (wdLastScanErr != ESP_OK) {
         // Show error code in red so it's visible on TFT
         tft.setTextColor(0xF800);
@@ -295,8 +303,8 @@ static void updateWDValues() {
     }
 
     // STATUS value — shows current scan phase
-    tft.fillRect(170, WD_STATS_Y + 20, 65, 8, HALEHOUND_BLACK);
-    tft.setCursor(170, WD_STATS_Y + 20);
+    tft.fillRect(SCALE_X(170), WD_STATS_Y + SCALE_H(20), SCALE_W(65), 8, HALEHOUND_BLACK);
+    tft.setCursor(SCALE_X(170), WD_STATS_Y + SCALE_H(20));
     if (stats.active) {
         if (wdBlinkState) {
             tft.setTextColor(HALEHOUND_HOTPINK);
@@ -305,7 +313,7 @@ static void updateWDValues() {
             } else {
                 tft.print("WIFI");
             }
-            tft.fillCircle(205, WD_STATS_Y + 24, 3, HALEHOUND_HOTPINK);
+            tft.fillCircle(SCALE_X(205), WD_STATS_Y + SCALE_H(24), 3, HALEHOUND_HOTPINK);
         } else {
             tft.setTextColor(HALEHOUND_GUNMETAL);
             if (wdScanPhase == WD_PHASE_BLE) {
@@ -313,7 +321,7 @@ static void updateWDValues() {
             } else {
                 tft.print("WIFI");
             }
-            tft.fillCircle(205, WD_STATS_Y + 24, 3, HALEHOUND_GUNMETAL);
+            tft.fillCircle(SCALE_X(205), WD_STATS_Y + SCALE_H(24), 3, HALEHOUND_GUNMETAL);
         }
     } else {
         tft.setTextColor(HALEHOUND_GUNMETAL);
@@ -323,8 +331,8 @@ static void updateWDValues() {
     // ── GPS values ──
 
     // GPS fix status
-    tft.fillRect(30, WD_GPS_Y, 85, 8, HALEHOUND_BLACK);
-    tft.setCursor(30, WD_GPS_Y);
+    tft.fillRect(WD_COL_L_VAL2, WD_GPS_Y, SCALE_W(85), 8, HALEHOUND_BLACK);
+    tft.setCursor(WD_COL_L_VAL2, WD_GPS_Y);
     if (gpsData.valid) {
         tft.setTextColor(HALEHOUND_MAGENTA);
         tft.print("FIX OK");
@@ -334,14 +342,14 @@ static void updateWDValues() {
     }
 
     // SATS value
-    tft.fillRect(155, WD_GPS_Y, 50, 8, HALEHOUND_BLACK);
+    tft.fillRect(WD_COL_R_VAL, WD_GPS_Y, SCALE_W(50), 8, HALEHOUND_BLACK);
     tft.setTextColor(gpsData.satellites > 0 ? HALEHOUND_MAGENTA : HALEHOUND_GUNMETAL);
-    tft.setCursor(155, WD_GPS_Y);
+    tft.setCursor(WD_COL_R_VAL, WD_GPS_Y);
     tft.print(gpsData.satellites);
 
     // LAT value
-    tft.fillRect(30, WD_GPS_Y + 12, 90, 8, HALEHOUND_BLACK);
-    tft.setCursor(30, WD_GPS_Y + 12);
+    tft.fillRect(WD_COL_L_VAL2, WD_GPS_Y + SCALE_H(12), SCALE_W(90), 8, HALEHOUND_BLACK);
+    tft.setCursor(WD_COL_L_VAL2, WD_GPS_Y + SCALE_H(12));
     if (gpsData.valid) {
         tft.setTextColor(HALEHOUND_MAGENTA);
         snprintf(buf, sizeof(buf), "%.4f", gpsData.latitude);
@@ -352,8 +360,8 @@ static void updateWDValues() {
     }
 
     // LON value
-    tft.fillRect(150, WD_GPS_Y + 12, 85, 8, HALEHOUND_BLACK);
-    tft.setCursor(150, WD_GPS_Y + 12);
+    tft.fillRect(SCALE_X(150), WD_GPS_Y + SCALE_H(12), SCALE_W(85), 8, HALEHOUND_BLACK);
+    tft.setCursor(SCALE_X(150), WD_GPS_Y + SCALE_H(12));
     if (gpsData.valid) {
         tft.setTextColor(HALEHOUND_MAGENTA);
         snprintf(buf, sizeof(buf), "%.4f", gpsData.longitude);
@@ -366,8 +374,8 @@ static void updateWDValues() {
     // ── Speed / Time values ──
 
     // SPEED value (km/h from GPS)
-    tft.fillRect(48, WD_SPEED_Y, 70, 8, HALEHOUND_BLACK);
-    tft.setCursor(48, WD_SPEED_Y);
+    tft.fillRect(WD_COL_L_VAL4, WD_SPEED_Y, SCALE_W(70), 8, HALEHOUND_BLACK);
+    tft.setCursor(WD_COL_L_VAL4, WD_SPEED_Y);
     if (gpsData.valid && gpsData.speed >= 0.0) {
         tft.setTextColor(HALEHOUND_MAGENTA);
         snprintf(buf, sizeof(buf), "%.1f km/h", gpsData.speed);
@@ -378,8 +386,8 @@ static void updateWDValues() {
     }
 
     // TIME value (session elapsed)
-    tft.fillRect(155, WD_SPEED_Y, 80, 8, HALEHOUND_BLACK);
-    tft.setCursor(155, WD_SPEED_Y);
+    tft.fillRect(WD_COL_R_VAL, WD_SPEED_Y, SCALE_W(80), 8, HALEHOUND_BLACK);
+    tft.setCursor(WD_COL_R_VAL, WD_SPEED_Y);
     if (stats.active && wdSessionStart > 0) {
         unsigned long elapsed = (millis() - wdSessionStart) / 1000;
         unsigned long hrs = elapsed / 3600;
@@ -398,9 +406,9 @@ static void updateWDValues() {
     }
 
     // ── SD File ──
-    tft.fillRect(10, WD_FILE_Y + 14, 220, 8, HALEHOUND_BLACK);
+    tft.fillRect(10, WD_FILE_Y + SCALE_H(14), SCREEN_WIDTH - 20, 8, HALEHOUND_BLACK);
     tft.setTextSize(1);
-    tft.setCursor(10, WD_FILE_Y + 14);
+    tft.setCursor(10, WD_FILE_Y + SCALE_H(14));
     if (stats.active && stats.currentFile.length() > 0) {
         tft.setTextColor(HALEHOUND_MAGENTA);
         // Show just the filename, not full path
@@ -659,9 +667,9 @@ void wardrivingScreen() {
                     wdLastScan = millis();
                 } else {
                     // SD card failed — flash error
-                    tft.fillRect(10, WD_FILE_Y + 14, 220, 8, HALEHOUND_BLACK);
+                    tft.fillRect(10, WD_FILE_Y + SCALE_H(14), SCREEN_WIDTH - 20, 8, HALEHOUND_BLACK);
                     tft.setTextColor(HALEHOUND_HOTPINK);
-                    tft.setCursor(10, WD_FILE_Y + 14);
+                    tft.setCursor(10, WD_FILE_Y + SCALE_H(14));
                     tft.print("SD CARD ERROR!");
                 }
             }

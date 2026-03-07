@@ -1414,14 +1414,14 @@ static void saveKeysToSD() {
     Serial.printf("[RFID] Keys saved to %s\n", filename);
 }
 
-// Y positions for Brute layout
-#define BRT_TITLE_Y      55
-#define BRT_SEP_Y        68
-#define BRT_INFO_Y       76
-#define BRT_PROGRESS_Y   108
-#define BRT_BAR_Y        128
-#define BRT_BAR_H        12
-#define BRT_RESULTS_Y    150
+// Y positions for Brute layout (scaled for 2.8"/3.5")
+#define BRT_TITLE_Y      SCALE_Y(55)
+#define BRT_SEP_Y        SCALE_Y(68)
+#define BRT_INFO_Y       SCALE_Y(76)
+#define BRT_PROGRESS_Y   SCALE_Y(108)
+#define BRT_BAR_Y        SCALE_Y(128)
+#define BRT_BAR_H        SCALE_H(12)
+#define BRT_RESULTS_Y    SCALE_Y(150)
 
 void setup() {
     exitRequested = false;
@@ -1519,7 +1519,7 @@ void loop() {
             xTaskCreatePinnedToCore(
                 bruteForceTask,
                 "rfidBrute",
-                4096,
+                8192,
                 NULL,
                 1,
                 &bruteTaskHandle,

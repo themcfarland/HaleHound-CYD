@@ -4530,33 +4530,33 @@ static void showAttackPopup(int index) {
     tft.drawRect(popupX + 2, popupY + 2, popupW - 4, popupH - 4, HALEHOUND_MAGENTA);
 
     // Skull icon at top center
-    tft.drawBitmap(popupX + (popupW/2) - 8, popupY + 8, bitmap_icon_skull_tools, 16, 16, HALEHOUND_HOTPINK);
+    tft.drawBitmap(popupX + (popupW/2) - 8, popupY + SCALE_H(8), bitmap_icon_skull_tools, 16, 16, HALEHOUND_HOTPINK);
 
     // Title
     tft.setTextColor(HALEHOUND_HOTPINK);
     tft.setTextSize(1);
-    tft.setCursor(popupX + 10, popupY + 30);
+    tft.setCursor(popupX + 10, popupY + SCALE_H(30));
     tft.print("SELECT ATTACK");
 
     // SSID (truncated)
     tft.setTextColor(HALEHOUND_MAGENTA);
     tft.setTextSize(1);
-    tft.setCursor(popupX + 10, popupY + 45);
+    tft.setCursor(popupX + 10, popupY + SCALE_H(45));
     tft.print("Target: ");
     tft.print(ssid.substring(0, 14));
     if (ssid.length() > 14) tft.print("..");
 
     // Channel info
-    tft.setCursor(popupX + 10, popupY + 58);
+    tft.setCursor(popupX + 10, popupY + SCALE_H(58));
     tft.print("Ch: ");
     tft.print(WiFi.channel(realIdx));
     tft.print("  ");
     tft.print(WiFi.RSSI(realIdx));
     tft.print("dBm");
 
-    // Buttons
-    int btnY = popupY + 80;
-    int btnW = 60;
+    // Buttons — MUST match handleAttackPopupTouch() coordinates exactly
+    int btnY = popupY + SCALE_H(80);
+    int btnW = SCALE_W(60);
     int btnH = 28;
     int btnSpacing = 10;
     int totalBtnW = (btnW * 3) + (btnSpacing * 2);
@@ -4589,7 +4589,7 @@ static void showAttackPopup(int index) {
 
     // Info hint
     tft.setTextColor(HALEHOUND_VIOLET);
-    tft.setCursor(popupX + 10, popupY + 120);
+    tft.setCursor(popupX + 10, popupY + SCALE_H(120));
     tft.print("DEA=Deauth  CLONE=Evil Twin");
 }
 
