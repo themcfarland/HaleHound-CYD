@@ -15,6 +15,44 @@
 #include <arduinoFFT.h>
 
 // ═══════════════════════════════════════════════════════════════════════════
+// CC1101 PA MODULE CONTROL (E07-433M20S)
+// TX_EN HIGH + RX_EN LOW = transmit | TX_EN LOW + RX_EN HIGH = receive
+// Both LOW = idle/shutdown | NEVER both HIGH
+// ═══════════════════════════════════════════════════════════════════════════
+
+static void cc1101PaSetTx() {
+    #if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        digitalWrite(CC1101_RX_EN, LOW);
+        delayMicroseconds(2);
+        digitalWrite(CC1101_TX_EN, HIGH);
+    }
+    #endif
+    ELECHOUSE_cc1101.SetTx();
+}
+
+static void cc1101PaSetRx() {
+    #if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        digitalWrite(CC1101_TX_EN, LOW);
+        delayMicroseconds(2);
+        digitalWrite(CC1101_RX_EN, HIGH);
+    }
+    #endif
+    ELECHOUSE_cc1101.SetRx();
+}
+
+static void cc1101PaSetIdle() {
+    ELECHOUSE_cc1101.setSidle();
+    #if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        digitalWrite(CC1101_TX_EN, LOW);
+        digitalWrite(CC1101_RX_EN, LOW);
+    }
+    #endif
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // REPLAY ATTACK IMPLEMENTATION
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -482,13 +520,13 @@ static void updateDisplay() {
         rssi = ELECHOUSE_cc1101.getRssi();
 
         // Tune CC1101
-        ELECHOUSE_cc1101.setSidle();
+        cc1101PaSetIdle();
         if (autoScanEnabled) {
             ELECHOUSE_cc1101.setMHZ(frequencyList[autoScanIndex] / 1000000.0);
         } else {
             ELECHOUSE_cc1101.setMHZ(frequencyList[currentFreqIndex] / 1000000.0);
         }
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
         cc1101Unlock();
     }
 
@@ -789,7 +827,7 @@ void setup() {
         ELECHOUSE_cc1101.setCCMode(0);       // Raw/RCSwitch mode - enables serial data on GDO2
         ELECHOUSE_cc1101.setModulation(2);   // ASK/OOK modulation
         ELECHOUSE_cc1101.setMHZ(frequencyList[currentFreqIndex] / 1000000.0);
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
 
         #if CYD_DEBUG
         Serial.println("[SUBGHZ] CC1101 initialized on SPI18/19/23 CS27 GDO0=22 GDO2=35");
@@ -979,9 +1017,9 @@ void loop() {
 
                 // Tune CC1101 (mutex protects from Core 0 FFT sampling)
                 if (cc1101Lock(pdMS_TO_TICKS(60))) {
-                    ELECHOUSE_cc1101.setSidle();
+                    cc1101PaSetIdle();
                     ELECHOUSE_cc1101.setMHZ(frequencyList[autoScanIndex] / 1000000.0);
-                    ELECHOUSE_cc1101.SetRx();
+                    cc1101PaSetRx();
                     cc1101Unlock();
                 }
 
@@ -1073,7 +1111,7 @@ void cleanup() {
         rmtInitialized = false;
     }
 
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
     spiDeselect();
 
     // Clean up mutex
@@ -1114,9 +1152,9 @@ void setFrequencyIndex(int index) {
     currentFreqIndex = index;
 
     if (cc1101Lock(pdMS_TO_TICKS(60))) {
-        ELECHOUSE_cc1101.setSidle();
+        cc1101PaSetIdle();
         ELECHOUSE_cc1101.setMHZ(frequencyList[currentFreqIndex] / 1000000.0);
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
         cc1101Unlock();
     }
 
@@ -1234,7 +1272,7 @@ void sendSignal(unsigned long value, int bitLength, int protocol) {
     // Switch CC1101 to TX mode at max power (mutex protects from Core 0 FFT)
     if (cc1101Lock(pdMS_TO_TICKS(200))) {
         ELECHOUSE_cc1101.setPA(12);
-        ELECHOUSE_cc1101.SetTx();
+        cc1101PaSetTx();
         cc1101Unlock();
     }
 
@@ -1269,7 +1307,7 @@ void sendSignal(unsigned long value, int bitLength, int protocol) {
 
     // Switch back to RX
     if (cc1101Lock(pdMS_TO_TICKS(200))) {
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
         cc1101Unlock();
     }
     delay(100);
@@ -1382,9 +1420,9 @@ bool loadProfile(int index) {
     signalCaptured = true;
 
     // Tune to frequency
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
     ELECHOUSE_cc1101.setMHZ(profile.frequency / 1000000.0);
-    ELECHOUSE_cc1101.SetRx();
+    cc1101PaSetRx();
 
     #if CYD_DEBUG
     Serial.println("[SUBGHZ] Profile loaded: " + String(profile.name));
@@ -1857,7 +1895,7 @@ static void sjJamTask(void* param) {
         // Check if Core 1 requested a frequency change
         if (freqChanged) {
             ELECHOUSE_cc1101.setMHZ(frequencyListMHz[currentFreqIndex]);
-            ELECHOUSE_cc1101.SetTx();
+            cc1101PaSetTx();
             freqChanged = false;
         }
 
@@ -1865,7 +1903,7 @@ static void sjJamTask(void* param) {
         if (autoSweep && millis() - sweepTime >= SWEEP_INTERVAL_MS) {
             currentFreqIndex = (currentFreqIndex + 1) % frequencyCount;
             ELECHOUSE_cc1101.setMHZ(frequencyListMHz[currentFreqIndex]);
-            ELECHOUSE_cc1101.SetTx();
+            cc1101PaSetTx();
             sweepTime = millis();
             lastSweepTime = sweepTime;  // Expose for display
         }
@@ -2092,7 +2130,7 @@ void start() {
     if (!jamming) {
         // CC1101 init before task launch — sequential, no contention
         ELECHOUSE_cc1101.setMHZ(frequencyListMHz[currentFreqIndex]);
-        ELECHOUSE_cc1101.SetTx();
+        cc1101PaSetTx();
         lastSweepTime = millis();
         jamming = true;
 
@@ -2109,7 +2147,7 @@ void stop() {
         stopJamTask();  // Kill Core 0 task first
 
         // CC1101 cleanup — task is dead, safe to access from Core 1
-        ELECHOUSE_cc1101.setSidle();
+        cc1101PaSetIdle();
         digitalWrite(CC1101_GDO0, LOW);
 
         #if CYD_DEBUG
@@ -2203,7 +2241,7 @@ void cleanup() {
         stop();  // Kills Core 0 task + CC1101 cleanup
     }
     stopJamTask();  // Belt and suspenders — ensure task is dead
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
     spiDeselect();
 
     initialized = false;
@@ -2586,7 +2624,7 @@ static void runSequentialBrute(const ProtocolDef& proto) {
     ELECHOUSE_cc1101.setModulation(2);
     ELECHOUSE_cc1101.setMHZ(proto.frequency / 1000000.0);
     ELECHOUSE_cc1101.setPA(12);
-    ELECHOUSE_cc1101.SetTx();
+    cc1101PaSetTx();
 
     bruteSwitch.enableTransmit(CC1101_GDO0);
 
@@ -2629,7 +2667,7 @@ static void runSequentialBrute(const ProtocolDef& proto) {
     }
 
     bruteSwitch.disableTransmit();
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
 }
 
 // Run De Bruijn optimized brute force
@@ -2637,13 +2675,13 @@ static void runDeBruijnBrute(const ProtocolDef& proto) {
     ELECHOUSE_cc1101.setModulation(2);
     ELECHOUSE_cc1101.setMHZ(proto.frequency / 1000000.0);
     ELECHOUSE_cc1101.setPA(12);
-    ELECHOUSE_cc1101.SetTx();
+    cc1101PaSetTx();
 
     bruteSwitch.enableTransmit(CC1101_GDO0);
 
     initDeBruijn(proto.bitLength);
     if (!deBruijnHasMore) {
-        ELECHOUSE_cc1101.setSidle();
+        cc1101PaSetIdle();
         return;
     }
 
@@ -2698,7 +2736,7 @@ static void runDeBruijnBrute(const ProtocolDef& proto) {
 
     cleanupDeBruijn();
     bruteSwitch.disableTransmit();
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
 }
 
 void setup() {
@@ -2897,7 +2935,7 @@ void startAttack() {
     ELECHOUSE_cc1101.setModulation(2);  // ASK/OOK
     ELECHOUSE_cc1101.setMHZ(proto.frequency / 1000000.0);
     ELECHOUSE_cc1101.setPA(12);  // Max power
-    ELECHOUSE_cc1101.SetTx();
+    cc1101PaSetTx();
 
     // Enable RCSwitch TX
     bruteSwitch.enableTransmit(CC1101_GDO0);
@@ -2917,7 +2955,7 @@ void stopAttack() {
 
     // Cleanup TX
     bruteSwitch.disableTransmit();
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
 
     #if CYD_DEBUG
     Serial.println("[BRUTE] Stopped at code " + String(currentCode));
@@ -3020,7 +3058,7 @@ void cleanup() {
         stopAttack();
     }
     cleanupDeBruijn();
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
     spiDeselect();
 
     initialized = false;
@@ -3423,7 +3461,7 @@ static void drawStaticElements() {
 static void scanAllFrequencies() {
     for (int ch = 0; ch < frequencyCount && scanning && !exitRequested; ch++) {
         ELECHOUSE_cc1101.setMHZ(frequencyListMHz[ch]);
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
         delayMicroseconds(450);  // 450us settle — CC1101 synth needs more than NRF24
 
         // Double RSSI read — OOK remotes pulse on/off, one read often catches "off"
@@ -3559,7 +3597,7 @@ void setup() {
     if (ELECHOUSE_cc1101.getCC1101()) {
         ELECHOUSE_cc1101.Init();
         ELECHOUSE_cc1101.setRxBW(812.5);  // Wide bandwidth for scanning
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
 
         #if CYD_DEBUG
         Serial.println("[ANALYZER] CC1101 ready");
@@ -3699,7 +3737,7 @@ void loop() {
 
 void startScan() {
     scanning = true;
-    ELECHOUSE_cc1101.SetRx();
+    cc1101PaSetRx();
 
     #if CYD_DEBUG
     Serial.println("[ANALYZER] Scanning started");
@@ -3708,7 +3746,7 @@ void startScan() {
 
 void stopScan() {
     scanning = false;
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
 
     #if CYD_DEBUG
     Serial.println("[ANALYZER] Scanning stopped");
@@ -3726,7 +3764,7 @@ bool isExitRequested() {
 void cleanup() {
     stopScanTask();
     scanning = false;
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
     spiDeselect();
 
     initialized = false;
@@ -3762,7 +3800,7 @@ void cc1101Init() {
     if (ELECHOUSE_cc1101.getCC1101()) {
         ELECHOUSE_cc1101.Init();
         ELECHOUSE_cc1101.setMHZ(433.92);
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
         #if CYD_DEBUG
         Serial.println("[CC1101] Init complete - SPI18/19/23 CS27 GDO0=22 GDO2=35");
         #endif
@@ -3774,6 +3812,6 @@ void cc1101Init() {
 }
 
 void cc1101Cleanup() {
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
     spiDeselect();
 }
