@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 #include "nrf24_config.h"
+#include "shared.h"
 #include <ELECHOUSE_CC1101_SRC_DRV.h>
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -30,6 +31,14 @@ void nrf24ClaimSPI() {
     // Standard CYD: CC1101 CS (GPIO 27) is separate — safe to send setSidle
     // Hat: CC1101_CS == NRF24_CSN == GPIO 27 — setSidle would corrupt NRF24
     ELECHOUSE_cc1101.setSidle();
+    #endif
+
+    // If E07 PA module, set both PA control pins LOW (idle) before NRF24 takes SPI
+    #if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        digitalWrite(CC1101_TX_EN, LOW);
+        digitalWrite(CC1101_RX_EN, LOW);
+    }
     #endif
 
     // Initialize SPI for NRF24

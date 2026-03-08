@@ -3275,19 +3275,20 @@ static void tdDrawIconBar() {
 
 static void tdDrawTitle() {
     tft.drawLine(0, 38, SCREEN_WIDTH, 38, HALEHOUND_HOTPINK);
-    drawGlitchTitle(58, "LUNATIC FRINGE");
-    tft.drawLine(0, 62, SCREEN_WIDTH, 62, HALEHOUND_HOTPINK);
+    drawGlitchTitle(50, "LUNATIC");
+    drawGlitchStatus(66, "FRINGE", HALEHOUND_VIOLET);
+    tft.drawLine(0, 72, SCREEN_WIDTH, 72, HALEHOUND_HOTPINK);
 }
 
 static void drawDeviceList() {
-    tft.fillRect(0, 63, SCREEN_WIDTH, SCREEN_HEIGHT - 63, HALEHOUND_BLACK);
+    tft.fillRect(0, 73, SCREEN_WIDTH, SCREEN_HEIGHT - 73, HALEHOUND_BLACK);
 
     // Header line
     tft.setTextSize(1);
     tft.setTextColor(HALEHOUND_VIOLET);
-    tft.setCursor(5, 67);
+    tft.setCursor(5, 77);
     tft.printf("FOUND: %d", deviceCount);
-    tft.setCursor(120, 67);
+    tft.setCursor(120, 77);
     tft.printf("SCANS: %d", totalScans);
 
     if (deviceCount == 0) {
@@ -3363,12 +3364,12 @@ static void drawDeviceList() {
 }
 
 static void drawDeviceDetail() {
-    tft.fillRect(0, 63, SCREEN_WIDTH, SCREEN_HEIGHT - 63, HALEHOUND_BLACK);
+    tft.fillRect(0, 73, SCREEN_WIDTH, SCREEN_HEIGHT - 73, HALEHOUND_BLACK);
 
     if (deviceCount == 0 || currentIndex >= deviceCount) return;
 
     TrackedDevice& d = devices[currentIndex];
-    int y = 72;
+    int y = 82;
 
     // Type
     tft.setTextColor(HALEHOUND_MAGENTA);
@@ -3460,7 +3461,7 @@ static void tdDrawAlertFlash() {
     // Flash border
     bool on = ((millis() - alertStart) / 100) % 2 == 0;
     uint16_t color = on ? HALEHOUND_HOTPINK : HALEHOUND_BLACK;
-    tft.drawRect(0, 63, SCREEN_WIDTH, 3, color);
+    tft.drawRect(0, 73, SCREEN_WIDTH, 3, color);
     tft.drawRect(0, SCREEN_HEIGHT - 15, SCREEN_WIDTH, 3, color);
 }
 

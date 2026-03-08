@@ -50,9 +50,9 @@ Version **v3.2.0 CYD Edition** | By [JesseCHale](https://github.com/JesseCHale)
 
 ## Overview
 
-HaleHound-CYD is a multi-protocol offensive security toolkit built for the ESP32-2432S028 "Cheap Yellow Display" (CYD) platform. It ports the full ESP32-DIV HaleHound v2.5.0 firmware to the CYD's 2.8" touchscreen form factor, adding external CC1101 SubGHz, NRF24L01+PA+LNA 2.4GHz, and GPS radios via the CYD's breakout pins.
+HaleHound-CYD is a multi-protocol offensive security toolkit built for the ESP32 "Cheap Yellow Display" (CYD) platform. Supports both the 2.8" (ESP32-2432S028) and 3.5" (ESP32-3248S035C) CYD boards. External CC1101 SubGHz, NRF24L01+PA+LNA 2.4GHz, PN532 NFC/RFID, and GPS modules connect via the CYD's breakout pins.
 
-Every attack module from the original ESP32-DIV is present, plus CYD-exclusive features: full touchscreen navigation, EAPOL/PMKID capture, Karma attacks, wardriving with GPS logging, UART serial monitor for hardware hacking, and OTA firmware updates from SD card.
+Every attack module from the original ESP32-DIV is present, plus CYD-exclusive features: full touchscreen navigation, EAPOL/PMKID capture, Karma attacks, wardriving with GPS logging, PN532 RFID card scanning/cloning/brute force, defensive jam detection, UART serial monitor for hardware hacking, and OTA firmware updates from SD card.
 
 All radios transmit at maximum power. No safety nets.
 
@@ -85,18 +85,18 @@ All radios transmit at maximum power. No safety nets.
 
 ## Hardware Requirements
 
-### Base Board
+### Base Board (Either One)
 
-| Component | Specification |
-|-----------|--------------|
-| Board | ESP32-2432S028 (CYD 2.8") |
-| MCU | ESP32-WROOM-32 or ESP32-WROOM-32UE |
-| Display | 2.8" ILI9341 320x240 TFT |
-| Touch | XPT2046 Resistive (separate SPI bus) |
-| Flash | 4MB minimum (16MB recommended) |
-| USB | CH340C USB-Serial (Micro-USB or USB-C) |
-| SD Card | Built-in MicroSD slot (VSPI bus) |
-| Power | 5V USB or LiPo + boost converter |
+| Component | CYD 2.8" (ESP32-2432S028) | CYD 3.5" (ESP32-3248S035C) |
+|-----------|---------------------------|---------------------------|
+| MCU | ESP32-WROOM-32 / 32UE | ESP32-WROOM-32 |
+| Display | 2.8" ILI9341 240x320 | 3.5" ST7796 320x480 |
+| Touch | XPT2046 Resistive (SPI) | GT911 Capacitive (I2C) |
+| Flash | 4MB minimum (16MB recommended) | 4MB minimum (16MB recommended) |
+| USB | CH340C (Micro-USB or USB-C) | CH340C (USB-C) |
+| SD Card | Built-in MicroSD (VSPI) | Built-in MicroSD (VSPI) |
+| Power | 5V USB or LiPo + boost | 5V USB or LiPo + boost |
+| Backlight | GPIO 21 | GPIO 27 |
 
 ### External Modules (All Required for Full Functionality)
 
@@ -104,6 +104,7 @@ All radios transmit at maximum power. No safety nets.
 |--------|-------|---------|
 | SubGHz Radio | CC1101 HW-863 (red board) | 300-928 MHz signal capture/replay/jam |
 | 2.4GHz Radio | NRF24L01+PA+LNA | WiFi/BLE/Zigbee jamming, MouseJack |
+| NFC/RFID | PN532 V3 (Elechouse) | 13.56 MHz card scan/read/clone/brute |
 | GPS | GT-U7 or NEO-6M | Wardriving, location logging |
 
 ### Optional
@@ -119,16 +120,36 @@ All radios transmit at maximum power. No safety nets.
 
 ## Supported Boards
 
-| Board | Define | Display | Status |
-|-------|--------|---------|--------|
-| ESP32-2432S028 (2.8") | `CYD_28` | 240x320 ILI9341 | **Primary - Fully Tested** |
-| ESP32-3248S035 (3.5") | `CYD_35` | 320x480 ST7796 | Pin defines ready, untested |
+| Board | Build Target | Display | Touch | Status |
+|-------|-------------|---------|-------|--------|
+| ESP32-2432S028 (2.8") | `esp32-cyd` | 240x320 ILI9341 | XPT2046 Resistive | **Fully Tested** |
+| ESP32-3248S035C (3.5") | `esp32-cyd-35` | 320x480 ST7796 | GT911 Capacitive | **Fully Tested** |
+| QDtech E32R28T (2.8") | `esp32-e32r28t` | 240x320 ILI9341 | XPT2046 Resistive | Supported |
+| NM-RF-Hat (2.8") | `esp32-cyd-hat` | 240x320 ILI9341 | XPT2046 Resistive | Supported |
 
-Board selection is in `cyd_config.h` line 14:
-```cpp
-#define CYD_28    // ESP32-2432S028 - 2.8" 320x240 ILI9341
-//#define CYD_35    // ESP32-3248S035 - 3.5" 480x320 ST7796
+Board selection is automatic via PlatformIO build target. Build with:
+```bash
+pio run -e esp32-cyd       # 2.8" CYD
+pio run -e esp32-cyd-35    # 3.5" CYD
+pio run -e esp32-e32r28t   # E32R28T
+pio run -e esp32-cyd-hat   # NM-RF-Hat
 ```
+
+### 3.5" CYD Differences
+
+The 3.5" CYD (ESP32-3248S035C) uses the same chip (ESP32-D0WD-V3) and all the same external radio wiring, with these board-level differences:
+
+| Feature | 2.8" CYD | 3.5" CYD |
+|---------|----------|----------|
+| Resolution | 240x320 | 320x480 |
+| Display Driver | ILI9341 | ST7796 |
+| Touch | XPT2046 (SPI, bit-banged) | GT911 (I2C, capacitive) |
+| Backlight | GPIO 21 | GPIO 27 |
+| CC1101 CS | GPIO 27 | **GPIO 26** (GPIO 27 = backlight) |
+| Speaker RX | GPIO 26 | N/A (GPIO 26 = CC1101 CS) |
+| Touch Pins | CLK=25, MOSI=32, MISO=39, CS=33 | SDA=33, SCL=32, RST=21, INT=25 |
+
+All UI coordinates scale automatically via `SCALE_Y`/`SCALE_X`/`SCALE_W`/`SCALE_H` macros in `cyd_config.h`.
 
 ---
 
@@ -161,15 +182,17 @@ The CYD has **two independent SPI buses**. Understanding this is critical:
   │                 VSPI BUS (Shared Radio Bus)                 │
   │  SCK=GPIO18   MOSI=GPIO23   MISO=GPIO19                    │
   │                                                             │
-  │  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
-  │  │ SD Card  │  │  CC1101  │  │  NRF24   │                 │
-  │  │ CS=GPIO5 │  │ CS=GPIO27│  │ CSN=GPIO4│                 │
-  │  │ (built-in│  │ GDO0=G22 │  │ CE=GPIO16│                 │
-  │  │  slot)   │  │ GDO2=G35 │  │ IRQ=G17  │                 │
-  │  └──────────┘  └──────────┘  └──────────┘                 │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+  │  │ SD Card  │  │  CC1101  │  │  NRF24   │  │  PN532   │  │
+  │  │ CS=GPIO5 │  │ CS=GPIO27│  │ CSN=GPIO4│  │ CS=GPIO17│  │
+  │  │ (built-in│  │ GDO0=G22 │  │ CE=GPIO16│  │ (RFID/   │  │
+  │  │  slot)   │  │ GDO2=G35 │  │          │  │  NFC)    │  │
+  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
   │                                                             │
   │  IMPORTANT: Only ONE device active at a time!               │
   │  Pull target CS LOW, all others HIGH before SPI transfer.   │
+  │  PN532 uses LSBFIRST (others use MSBFIRST) — handled by    │
+  │  Adafruit library's beginTransaction/endTransaction.        │
   └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -190,6 +213,8 @@ The CYD has **two independent SPI buses**. Understanding this is critical:
 │ GDO2 (RX) ───────┼──────────────┤ GPIO 35 (P3 hdr)  │
 └─────────────────┘              └──────────────────┘
 ```
+
+**3.5" CYD Note:** CC1101 CS moves to **GPIO 26** on the 3.5" board because GPIO 27 is the backlight pin. All other CC1101 pins are identical.
 
 **GDO0/GDO2 Pin Naming Fix:** The original ESP32-DIV firmware (CiferTech) had TX and RX **swapped**. HaleHound corrects this:
 - **GDO0** (GPIO 22) = Data going **TO** the CC1101 (TX line)
@@ -217,7 +242,29 @@ GPIO 35 is input-only on ESP32, which is correct for RX.
 
 **Power Note:** The +PA+LNA version draws significant current. If you get random resets or failed init, solder a **10uF capacitor** between VCC and GND directly at the NRF24 module.
 
-**Pin Repurposing:** The CYD's RGB LED pins (GPIO 4, 16, 17) are sacrificed for the NRF24. The RGB LED is disabled in firmware (`CYD_HAS_RGB_LED = 0`).
+**Pin Repurposing:** The CYD's RGB LED pins (GPIO 4, 16, 17) are sacrificed for the NRF24 and PN532. The RGB LED is disabled in firmware (`CYD_HAS_RGB_LED = 0`).
+
+### PN532 NFC/RFID Wiring
+
+```
+┌─────────────────┐              ┌──────────────────┐
+│    PN532 V3      │              │    CYD ESP32      │
+│   (Elechouse)    │              │                   │
+├─────────────────┤              ├──────────────────┤
+│ VCC ─────────────┼──────────────┤ 3.3V (CN1 hdr)    │
+│ GND ─────────────┼──────────────┤ GND  (CN1 hdr)    │
+│ SCK ─────────────┼──────────────┤ GPIO 18 (VSPI)    │
+│ MOSI ────────────┼──────────────┤ GPIO 23 (VSPI)    │
+│ MISO ────────────┼──────────────┤ GPIO 19 (VSPI)    │
+│ SS ──────────────┼──────────────┤ GPIO 17 (was RGB B)│
+└─────────────────┘              └──────────────────┘
+```
+
+**DIP Switches:** Set CH1=OFF, CH2=ON for SPI mode.
+
+**SPI Note:** The PN532 uses LSBFIRST SPI while all other VSPI devices use MSBFIRST. This is safe because the Adafruit library brackets every transfer with `beginTransaction(LSBFIRST)`/`endTransaction()`, and the SPI manager ensures only one device is active at a time.
+
+**Pin Sharing:** GPIO 17 was originally NRF24 IRQ, but HaleHound-CYD never used the NRF24 interrupt line. The PN532 CS repurposes this pin.
 
 ### GPS Module Wiring
 
@@ -268,7 +315,7 @@ HALEHOUND-CYD v3.2.0
 │   ├── BLE Scanner ............ Discover nearby BLE devices
 │   ├── WhisperPair ............ CVE-2025-36911 Fast Pair scanner
 │   ├── AirTag Detect .......... Apple FindMy tracker detection
-│   ├── Lunatic Fringe ..... Multi-platform tracker scanner
+│   ├── Lunatic Fringe ......... Multi-platform tracker scanner
 │   └── Back to Main Menu
 │
 ├── 2.4GHz (NRF24) ───────────────────────────────────────
@@ -284,6 +331,20 @@ HALEHOUND-CYD v3.2.0
 │   ├── SubGHz Jammer .......... Wideband SubGHz disruption
 │   ├── Spectrum Analyzer ...... SubGHz RF spectrum display
 │   ├── Saved Profile .......... Load saved signal profiles
+│   └── Back to Main Menu
+│
+├── RFID (PN532) ──────────────────────────────────────────
+│   ├── NFC Scanner ............ Detect & identify cards in range
+│   ├── Card Reader ............ Read MIFARE block data
+│   ├── Card Clone ............. Clone UID to writable card
+│   ├── Brute Force ............ MIFARE key bruteforce (A/B)
+│   ├── Card Emulator .......... Emulate captured card UID
+│   └── Back to Main Menu
+│
+├── Jam Detect ────────────────────────────────────────────
+│   ├── WiFi Guardian .......... Detect 802.11 deauth floods
+│   ├── BLE Watchdog ........... Detect BLE advertisement floods
+│   ├── SubGHz Sentinel ........ Detect SubGHz carrier jamming
 │   └── Back to Main Menu
 │
 ├── SIGINT ────────────────────────────────────────────────
@@ -305,8 +366,11 @@ HALEHOUND-CYD v3.2.0
 │   ├── Brightness ............. Backlight PWM control
 │   ├── Screen Timeout ......... 30s / 1m / 2m / 5m / 10m / Never
 │   ├── Swap Colors ............ BGR / RGB panel toggle
-│   ├── Rotation ............... Portrait orientation fix (0° / 180° / 90CW / 90CCW)
+│   ├── Theme .................. Color theme selection
+│   ├── Rotation ............... Portrait orientation (0°/180°/90CW/90CCW)
 │   ├── Device Info ............ Hardware stats (+ Easter Egg)
+│   ├── Set PIN ................ 4-digit lock PIN (optional)
+│   ├── CC1101 Module .......... Standard / E07 PA module toggle
 │   └── Back to Main Menu
 │
 └── About ─────────────────────────────────────────────────
@@ -932,15 +996,27 @@ See `flash_package/FLASH_INSTRUCTIONS.txt` for complete step-by-step instruction
 ### Build
 
 ```bash
-# From project root
+# 2.8" CYD (default)
 pio run -e esp32-cyd
+
+# 3.5" CYD
+pio run -e esp32-cyd-35
+
+# E32R28T variant
+pio run -e esp32-e32r28t
+
+# NM-RF-Hat variant
+pio run -e esp32-cyd-hat
 ```
 
 ### Flash
 
 ```bash
-# Build and upload
+# Build and upload (2.8")
 pio run -e esp32-cyd --target upload
+
+# Build and upload (3.5")
+pio run -e esp32-cyd-35 --target upload
 
 # If serial port isn't auto-detected:
 pio run -e esp32-cyd --target upload --upload-port /dev/cu.usbserial-0001
@@ -1051,13 +1127,14 @@ Three devices share the VSPI bus (GPIO 18/19/23). The `spi_manager` module handl
 |-------|--------|------------|
 | GPIO 26 cannot be used for GPS UART | Confirmed | Use GPIO 3 (P1). GPIO 26 feeds through 8002A amp IC |
 | GPS shares GPIO 3 with USB serial | By design | Firmware calls Serial.end() during GPS, restores on exit |
-| RGB LED unavailable | By design | Pins repurposed for NRF24 CE/CSN/IRQ |
-| Speaker unavailable | By design | GPIO 26 repurposed for serial monitor RX |
+| RGB LED unavailable | By design | Pins repurposed for NRF24 CE/CSN and PN532 CS |
+| Speaker unavailable (2.8") | By design | GPIO 26 repurposed for serial monitor RX |
+| Speaker unavailable (3.5") | By design | GPIO 26 = CC1101 CS on 3.5" |
 | Python 3.14 breaks PlatformIO build | Platform bug | Patch `platform.py` or use Python 3.10-3.13 |
 | NRF24+PA+LNA random resets | Power issue | Add 10uF capacitor between VCC/GND at module |
 | CYD boards have different LCD panel orientations | Hardware variance | Use Settings > Rotation to select the correct portrait orientation |
-| Touch mapping varies between CYD boards | Hardware variance | Auto-calibrates on first boot; recalibrate via Tools → Touch Calibrate |
-| 3.5" CYD board untested | Pending | Pin defines ready in cyd_config.h, needs validation |
+| Touch mapping varies between 2.8" CYD boards | Hardware variance | Auto-calibrates on first boot; recalibrate via Tools → Touch Calibrate |
+| PN532 uses LSBFIRST SPI | By design | Adafruit library handles byte order in beginTransaction; SPI manager deconflicts bus |
 
 ---
 
@@ -1079,11 +1156,14 @@ HaleHound-CYD/
 ├── subghz_attacks.cpp/h ....... Replay, Brute Force, Jammer, Analyzer
 ├── subconfig.cpp/h ............ CC1101 initialization and SPI setup
 │
+├── rfid_attacks.cpp/h ......... PN532 NFC Scanner, Reader, Clone, Brute, Emulator
+│
 ├── eapol_capture.cpp/h ........ EAPOL/PMKID handshake capture
 ├── karma_attack.cpp/h ......... Karma AP auto-respond attack
 ├── wardriving.cpp/h ........... GPS-tagged AP scan engine
 ├── wardriving_screen.cpp/h .... Wardriving display and UI
 ├── saved_captures.cpp/h ....... Browse saved handshakes on SD
+├── jam_detect.cpp/h ........... WiFi/BLE/SubGHz jam detection
 │
 ├── radio_test.cpp/h ........... SPI radio diagnostics + wiring diagrams
 ├── gps_module.cpp/h ........... GPS setup, NMEA parsing, display

@@ -97,7 +97,7 @@ void spiManagerSetup() {
     pinMode(CC1101_CS, OUTPUT);
     digitalWrite(CC1101_CS, HIGH);
     #if CYD_DEBUG
-    Serial.println("[SPI]   CC1101 CS (GPIO 27) configured");
+    Serial.printf("[SPI]   CC1101 CS (GPIO %d) configured\n", CC1101_CS);
     #endif
     #endif
 
@@ -105,7 +105,7 @@ void spiManagerSetup() {
     pinMode(NRF24_CSN, OUTPUT);
     digitalWrite(NRF24_CSN, HIGH);
     #if CYD_DEBUG
-    Serial.println("[SPI]   NRF24 CSN (GPIO 4) configured");
+    Serial.printf("[SPI]   NRF24 CSN (GPIO %d) configured\n", NRF24_CSN);
     #endif
     #endif
 
@@ -343,14 +343,14 @@ void spiPrintStatus() {
     #endif
 
     #if CYD_HAS_CC1101
-    Serial.print("  CC1101 (GPIO 27):  ");
+    Serial.printf("  CC1101 (GPIO %d):  ", CC1101_CS);
     Serial.println(digitalRead(CC1101_CS) == LOW ? "SELECTED" : "idle");
     #else
     Serial.println("  CC1101:   DISABLED");
     #endif
 
     #if CYD_HAS_NRF24
-    Serial.print("  NRF24 (GPIO 4):    ");
+    Serial.printf("  NRF24 (GPIO %d):    ", NRF24_CSN);
     Serial.println(digitalRead(NRF24_CSN) == LOW ? "SELECTED" : "idle");
     #else
     Serial.println("  NRF24:    DISABLED");

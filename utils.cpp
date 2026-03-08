@@ -366,6 +366,7 @@ struct Settings {
     uint16_t devicePin;        // 4-digit PIN stored as 0-9999
     uint8_t disclaimerAccepted; // 0 = not accepted, 1 = accepted (VALHALLA protocol)
     uint8_t blueTeamMode;      // 0 = normal, 1 = blue team (defensive only)
+    uint8_t cc1101PaModule;    // 0 = standard HW-863, 1 = E07-433M20S PA module
 };
 
 static Settings settings;
@@ -396,6 +397,7 @@ void saveSettings() {
     settings.devicePin = device_pin;
     settings.disclaimerAccepted = disclaimer_accepted ? 1 : 0;
     settings.blueTeamMode = blue_team_mode ? 1 : 0;
+    settings.cc1101PaModule = cc1101_pa_module ? 1 : 0;
 
     EEPROM.begin(EEPROM_SIZE);
     EEPROM.put(0, settings);
@@ -434,6 +436,7 @@ void loadSettings() {
         settings.devicePin = 0;        // No PIN set
         settings.disclaimerAccepted = 0; // Disclaimer not accepted — forces first-time screen
         settings.blueTeamMode = 0;     // Normal mode (not blue team)
+        settings.cc1101PaModule = 0;   // Standard CC1101 (no PA control)
 
         // Apply defaults to globals so they're not left uninitialized
         brightness_level = settings.brightness;
@@ -442,6 +445,7 @@ void loadSettings() {
         device_pin = 0;
         disclaimer_accepted = false;
         blue_team_mode = false;
+        cc1101_pa_module = false;
 
         // Write defaults to EEPROM immediately — prevents re-triggering on every boot
         EEPROM.begin(EEPROM_SIZE);
@@ -463,6 +467,7 @@ void loadSettings() {
         device_pin = (settings.devicePin <= 9999) ? settings.devicePin : 0;
         disclaimer_accepted = (settings.disclaimerAccepted == 1);
         blue_team_mode = (settings.blueTeamMode == 1);
+        cc1101_pa_module = (settings.cc1101PaModule == 1);
 
         // Apply rotation to global
         extern uint8_t screen_rotation;

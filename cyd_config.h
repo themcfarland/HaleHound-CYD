@@ -3,13 +3,20 @@
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HaleHound-CYD Master Pin Configuration
-// Supports: ESP32-2432S028 (2.8") and ESP32-3248S035 (3.5")
+// Supports: ESP32-2432S028 (2.8"), ESP32-3248S035 (3.5"), QDtech E32R28T (2.8")
 // Created: 2026-02-06
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// BOARD SELECTION: Set by PlatformIO build flags (-DCYD_35=1)
+// BOARD SELECTION: Set by PlatformIO build flags (-DCYD_35=1, -DCYD_E32R28T=1)
 // Default: CYD_28 when no flag specified (backwards compatible)
 // ═══════════════════════════════════════════════════════════════════════════
+
+// E32R28T inherits CYD_28 display/touch — same ILI9341, XPT2046, 240x320
+#ifdef CYD_E32R28T
+  #ifndef CYD_28
+    #define CYD_28
+  #endif
+#endif
 
 #if !defined(CYD_28) && !defined(CYD_35)
   #define CYD_28    // Default: ESP32-2432S028 - 2.8" 320x240 ILI9341
@@ -27,6 +34,9 @@
 #elif defined(NMRF_HAT)
   #define FW_EDITION   "CYD-HAT Edition"
   #define FW_DEVICE    "HaleHound-CYD-HAT"
+#elif defined(CYD_E32R28T)
+  #define FW_EDITION   "E32R28T Edition"
+  #define FW_DEVICE    "HaleHound-E32R28T"
 #else
   #define FW_EDITION   "CYD Edition"
   #define FW_DEVICE    "HaleHound-CYD"
@@ -44,6 +54,12 @@
   #define CYD_SCREEN_WIDTH  240
   #define CYD_SCREEN_HEIGHT 320
   #define CYD_TFT_BL        21    // Backlight on GPIO21
+#endif
+
+#ifdef CYD_E32R28T
+  // Override board name for E32R28T variant
+  #undef  CYD_BOARD_NAME
+  #define CYD_BOARD_NAME    "HaleHound-E32R28T 2.8\""
 #endif
 
 #ifdef CYD_35
@@ -128,10 +144,10 @@
 #define RADIO_SPI_MISO  VSPI_MISO
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CC1101 SubGHz RADIO (Red HW-863 Module)
+// CC1101 SubGHz RADIO (Red HW-863 Module / E07-433M20S PA Module)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// WIRING DIAGRAM:
+// WIRING DIAGRAM (ESP32-2432S028 — HW-863):
 // ┌─────────────┐      ┌─────────────┐
 // │   CC1101    │      │     CYD     │
 // │   HW-863    │      │   ESP32     │
@@ -144,6 +160,23 @@
 // │ CS ─────────┼──────┤ GPIO 27     │ (CN1 connector)
 // │ GDO0 ───────┼──────┤ GPIO 22     │ (P3 connector) TX to radio
 // │ GDO2 ───────┼──────┤ GPIO 35     │ (P3 connector) RX from radio
+// └─────────────┘      └─────────────┘
+//
+// WIRING DIAGRAM (E32R28T — E07-433M20S PA Module):
+// ┌─────────────┐      ┌─────────────┐
+// │ E07-433M20S │      │   E32R28T   │
+// │  CC1101+PA  │      │   ESP32     │
+// ├─────────────┤      ├─────────────┤
+// │ VCC ────────┼──────┤ 3.3V        │
+// │ GND ────────┼──────┤ GND         │
+// │ SCK ────────┼──────┤ GPIO 18     │ (4P SPI connector)
+// │ MOSI ───────┼──────┤ GPIO 23     │ (4P SPI connector)
+// │ MISO ───────┼──────┤ GPIO 19     │ (4P SPI connector)
+// │ CS ─────────┼──────┤ GPIO 27     │ (4P SPI connector CS)
+// │ GDO0 ───────┼──────┤ GPIO 22     │ (RGB Red pad) TX to radio
+// │ GDO2 ───────┼──────┤ GPIO 35     │ (Expand connector) RX from radio
+// │ TX_EN ──────┼──────┤ GPIO 4      │ (Amp enable pad) PA transmit
+// │ RX_EN ──────┼──────┤ GPIO 0      │ (BOOT pad) PA receive
 // └─────────────┘      └─────────────┘
 //
 // IMPORTANT: GDO0/GDO2 naming is confusing!
@@ -176,10 +209,32 @@
 #define RX_PIN          CC1101_GDO2   // GPIO35 - enableReceive()
 
 // ═══════════════════════════════════════════════════════════════════════════
+// CC1101 PA MODULE SUPPORT (E07-433M20S)
+// ═══════════════════════════════════════════════════════════════════════════
+// E07-433M20S has an external PA (20dBm) that needs TX_EN/RX_EN control.
+// TX_EN HIGH = transmit mode, RX_EN HIGH = receive mode.
+// Both LOW = idle/sleep. NEVER both HIGH at the same time.
+// Standard HW-863 modules ignore these pins (not connected).
+// Enabled via Settings > CC1101 Module > E07 PA MODULE
+// ═══════════════════════════════════════════════════════════════════════════
+#ifdef CYD_28
+  #ifdef CYD_E32R28T
+    // E32R28T: GPIO 4 = SC8002B amp enable — doubles as PA TX_EN
+    // Amp wakes briefly during CC1101 TX (6.5mA), shuts down on TX_EN LOW
+    #define CC1101_TX_EN     4    // PA transmit enable — amp enable pad
+    #define CC1101_RX_EN     0    // PA receive enable — BOOT button (pull-up = safe boot)
+  #else
+    #define CC1101_TX_EN    26    // PA transmit enable — was speaker/amp pin (disabled)
+    #define CC1101_RX_EN     0    // PA receive enable — was BOOT button (pull-up = safe boot)
+  #endif
+#endif
+// NOTE: CYD_35 uses GPIO 26 for CC1101_CS — PA pins TBD for 3.5" boards
+
+// ═══════════════════════════════════════════════════════════════════════════
 // NRF24L01+PA+LNA 2.4GHz RADIO
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// WIRING DIAGRAM:
+// WIRING DIAGRAM (ESP32-2432S028):
 // ┌─────────────┐      ┌─────────────┐
 // │  NRF24L01   │      │     CYD     │
 // │  +PA+LNA    │      │   ESP32     │
@@ -194,6 +249,21 @@
 // │ IRQ ────────┼──────┤ GPIO 17     │ (was RGB Blue LED) OPTIONAL
 // └─────────────┘      └─────────────┘
 //
+// WIRING DIAGRAM (E32R28T — E01-2G4M27SX):
+// ┌─────────────┐      ┌─────────────┐
+// │ E01-2G4M27  │      │   E32R28T   │
+// │    SX       │      │   ESP32     │
+// ├─────────────┤      ├─────────────┤
+// │ VCC ────────┼──────┤ 3.3V        │ (add 10uF cap if unstable!)
+// │ GND ────────┼──────┤ GND         │
+// │ SCK ────────┼──────┤ GPIO 18     │ (shared VSPI)
+// │ MOSI ───────┼──────┤ GPIO 23     │ (shared VSPI)
+// │ MISO ───────┼──────┤ GPIO 19     │ (shared VSPI)
+// │ CSN ────────┼──────┤ GPIO 26     │ (DAC pad — amp shut down)
+// │ CE ─────────┼──────┤ GPIO 16     │ (RGB Green pad)
+// │ IRQ ────────┼──────┤ N/C         │ (GPIO 17 used for PN532)
+// └─────────────┘      └─────────────┘
+//
 // NOTE: The +PA+LNA version needs clean 3.3V power!
 // Add a 10uF capacitor between VCC and GND at the module if you get
 // communication errors or the module resets randomly.
@@ -204,6 +274,12 @@
   // NM-RF-Hat: physical switch selects CC1101 or NRF24 on same two GPIOs
   #define NRF24_CSN     27    // Shared with CC1101_CS via hat switch
   #define NRF24_CE      22    // Shared with CC1101_GDO0 via hat switch
+#elif defined(CYD_E32R28T)
+  // E32R28T: GPIO 4 used for CC1101_TX_EN (amp enable), NRF24_CSN moves to GPIO 26
+  // GPIO 26 = DAC pad — coupling cap to SC8002B amp input (amp shut down = tiny load)
+  #define NRF24_CSN     26    // Chip Select - DAC/speaker pad (amp dead)
+  #define NRF24_CE      16    // Chip Enable - RGB Green pad
+  #define NRF24_IRQ     17    // Interrupt - RGB Blue pad (shared with PN532_CS)
 #else
   #define NRF24_CSN      4    // Chip Select - was RGB Red
   #define NRF24_CE      16    // Chip Enable - was RGB Green
@@ -285,6 +361,8 @@
 #define UART_MON_P1_TX        1    // P1 TX pin (shared with USB Serial TX)
 #ifdef CYD_35
   #define UART_MON_SPK_RX    -1    // GPIO 26 is CC1101_CS on 3.5" — no speaker RX
+#elif defined(CYD_E32R28T)
+  #define UART_MON_SPK_RX    -1    // GPIO 26 is NRF24_CSN on E32R28T — no speaker RX
 #else
   #define UART_MON_SPK_RX    26    // Speaker connector pin (RX only)
 #endif
@@ -296,7 +374,22 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // CYD boards only have BOOT button - use touchscreen for navigation
 
-#define BOOT_BUTTON      0    // GPIO0 - active LOW, directly readable
+#ifdef CYD_E32R28T
+  // E32R28T: GPIO 0 = CC1101_RX_EN — E07 PA module pulls it LOW permanently.
+  // Cannot use GPIO 0 as BOOT button. Use touch-only navigation.
+  #define BOOT_BUTTON       0    // Still GPIO0 physically, but reads forced false below
+  #define BOOT_BUTTON_USABLE 0   // DO NOT check digitalRead(0) — always reads LOW
+#else
+  #define BOOT_BUTTON       0    // GPIO0 - active LOW, directly readable
+  #define BOOT_BUTTON_USABLE 1
+#endif
+
+// Helper macro — replaces all direct digitalRead(0) == LOW checks
+#if BOOT_BUTTON_USABLE
+  #define IS_BOOT_PRESSED() (digitalRead(BOOT_BUTTON) == LOW)
+#else
+  #define IS_BOOT_PRESSED() (false)
+#endif
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TOUCH BUTTON ZONES (Virtual buttons on touchscreen)
@@ -371,19 +464,36 @@
 #define CYD_HAS_PN532       1     // PN532 NFC/RFID reader (13.56 MHz)
 
 // ═══════════════════════════════════════════════════════════════════════════
+// E32R28T-SPECIFIC FEATURES
+// ═══════════════════════════════════════════════════════════════════════════
+#ifdef CYD_E32R28T
+  #define CYD_HAS_BATTERY     1     // TP4854 LiPo charge IC on board
+  #define CYD_BATTERY_ADC    34     // Battery voltage ADC (input only)
+  #define CYD_HAS_AMP         1     // SC8002B audio amp — GPIO 4 = shutdown
+  // NOTE: SC8002B amp shutdown is handled by CC1101_TX_EN (GPIO 4)
+  // PA init sets GPIO 4 LOW = amp off. Amp wakes briefly during CC1101 TX only.
+  // If PA module is DISABLED in settings, setup() must still init GPIO 4 LOW
+  // to prevent amp from floating and drawing 6.5mA quiescent.
+#else
+  #define CYD_HAS_BATTERY     0
+  #define CYD_HAS_AMP         0
+#endif
+
+// ═══════════════════════════════════════════════════════════════════════════
 // SPI BUS SHARING - ACTIVE DEVICES
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // VSPI Bus (GPIO 18/19/23) is SHARED by FOUR devices:
-//   ┌──────────┬──────────────┬───────────────────────────────┐
-//   │ Device   │ CS Pin       │ Notes                         │
-//   ├──────────┼──────────────┼───────────────────────────────┤
-//   │ SD Card  │ GPIO 5       │ Built-in slot, payload storage│
-//   │ CC1101   │ GPIO 27 (28")│ SubGHz radio                  │
-//   │          │ GPIO 26 (35")│ (27 = backlight on 3.5")      │
-//   │ NRF24    │ GPIO 4       │ 2.4GHz radio                  │
-//   │ PN532    │ GPIO 17      │ NFC/RFID 13.56 MHz (LSBFIRST)│
-//   └──────────┴──────────────┴───────────────────────────────┘
+//   ┌──────────┬───────────────────────────┬───────────────────────────────┐
+//   │ Device   │ CS Pin                    │ Notes                         │
+//   ├──────────┼───────────────────────────┼───────────────────────────────┤
+//   │ SD Card  │ GPIO 5                    │ Built-in slot, payload storage│
+//   │ CC1101   │ GPIO 27 (28"/E32R28T)     │ SubGHz radio                  │
+//   │          │ GPIO 26 (35")             │ (27 = backlight on 3.5")      │
+//   │ NRF24    │ GPIO 4  (28")             │ 2.4GHz radio                  │
+//   │          │ GPIO 26 (E32R28T)         │ (4 = amp enable on E32R28T)   │
+//   │ PN532    │ GPIO 17                   │ NFC/RFID 13.56 MHz (LSBFIRST)│
+//   └──────────┴───────────────────────────┴───────────────────────────────┘
 //
 // IMPORTANT: Only ONE device active at a time!
 // Before using a device: Pull its CS LOW, all others HIGH
@@ -392,24 +502,38 @@
 // DISABLED/REPURPOSED PINS
 // ═══════════════════════════════════════════════════════════════════════════
 //
+// ── ESP32-2432S028 (Standard CYD 2.8") ──
 // RGB LED (DISABLED - pins used for NRF24):
 //   RGB_RED   = GPIO 4  → NRF24_CSN
 //   RGB_GREEN = GPIO 16 → NRF24_CE
 //   RGB_BLUE  = GPIO 17 → PN532_CS (was NRF24_IRQ, never used)
 //
 // Speaker (DISABLED - pin used for GPS):
-//   SPEAKER = GPIO 26 → GPS_RX_PIN
+//   SPEAKER = GPIO 26 → CC1101_TX_EN (PA module) / GPS_RX_PIN
 //
 // LDR Light Sensor (AVAILABLE - not repurposed):
 //   LDR = GPIO 34 (input only, 12-bit ADC)
 //   Could use for: ambient light detection, battery voltage divider
+//
+// ── QDtech E32R28T (2.8" Type-C with battery) ──
+// RGB LED pins remapped:
+//   RGB_RED   = GPIO 22 → CC1101_GDO0 (blinks on CC1101 TX = free indicator)
+//   RGB_GREEN = GPIO 16 → NRF24_CE
+//   RGB_BLUE  = GPIO 17 → PN532_CS
+//
+// Audio amp (SC8002B) repurposed:
+//   AMP_EN    = GPIO 4  → CC1101_TX_EN (amp wakes during CC1101 TX, harmless)
+//   DAC_OUT   = GPIO 26 → NRF24_CSN (coupling cap = tiny load, amp shut down)
+//
+// Battery (TP4854 charge IC):
+//   BAT_ADC   = GPIO 34 → Battery voltage reading (input only)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GPIO 34 NOTE
 // ═══════════════════════════════════════════════════════════════════════════
-// GPIO 34 = LDR (Light Dependent Resistor) on stock CYD boards.
-// Input only, 12-bit ADC. No battery voltage measurement available
-// without external hardware (voltage divider from 5V rail).
+// GPIO 34 = LDR (Light Dependent Resistor) on stock ESP32-2432S028 boards.
+// GPIO 34 = Battery ADC (TP4854 charge IC) on E32R28T boards.
+// Input only, 12-bit ADC on all boards.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LAYOUT HELPERS — Use these instead of hardcoded pixel values!

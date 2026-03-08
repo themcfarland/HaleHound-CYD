@@ -274,8 +274,8 @@ const unsigned char *tools_submenu_icons[tools_NUM_SUBMENU_ITEMS] = {
     bitmap_icon_go_back
 };
 
-// Settings Submenu - 9 items
-const int settings_NUM_SUBMENU_ITEMS = 9;
+// Settings Submenu - 10 items
+const int settings_NUM_SUBMENU_ITEMS = 10;
 const char *settings_submenu_items[settings_NUM_SUBMENU_ITEMS] = {
     "Brightness",
     "Screen Timeout",
@@ -285,6 +285,7 @@ const char *settings_submenu_items[settings_NUM_SUBMENU_ITEMS] = {
     "Rotation",
     "Device Info",
     "Set PIN",
+    "CC1101 Module",
     "Back to Main Menu"
 };
 
@@ -297,6 +298,7 @@ const unsigned char *settings_submenu_icons[settings_NUM_SUBMENU_ITEMS] = {
     bitmap_icon_follow,
     bitmap_icon_stat,
     bitmap_icon_eye2,
+    bitmap_icon_antenna,
     bitmap_icon_go_back
 };
 
@@ -332,6 +334,9 @@ bool device_locked = false;     // Current lock state (not persisted)
 // VALHALLA Protocol — Liability disclaimer + blue team mode
 bool disclaimer_accepted = false;   // Legal disclaimer accepted (persisted in EEPROM)
 bool blue_team_mode = false;        // VALHALLA blue team mode active (persisted in EEPROM)
+
+// CC1101 PA Module — E07-433M20S support (TX_EN/RX_EN control)
+bool cc1101_pa_module = false;      // E07 PA module active (persisted in EEPROM)
 
 // Timeout option tables
 const int timeoutOptions[] = {30, 60, 120, 300, 600, 0};
@@ -722,7 +727,7 @@ void handleWiFiSubmenuTouch() {
                         touchButtonsUpdate();
                         if (Deauther::isExitRequested()) feature_exit_requested = true;
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     Deauther::cleanup();
                     break;
@@ -815,7 +820,7 @@ void handleWiFiSubmenuTouch() {
                         CaptivePortal::loop();
                         touchButtonsUpdate();
                         if (CaptivePortal::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(50); if (digitalRead(0) == LOW) feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(50); if (IS_BOOT_PRESSED()) feature_exit_requested = true; }
                     }
                     CaptivePortal::cleanup();
                     break;
@@ -859,7 +864,7 @@ void handleWiFiSubmenuTouch() {
                         if (AuthFlood::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     AuthFlood::cleanup();
                     break;
@@ -914,7 +919,7 @@ void handleBluetoothSubmenuTouch() {
                         if (BleJammer::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     BleJammer::cleanup();
                     break;
@@ -930,7 +935,7 @@ void handleBluetoothSubmenuTouch() {
                         if (BleSpoofer::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     BleSpoofer::cleanup();
                     break;
@@ -941,7 +946,7 @@ void handleBluetoothSubmenuTouch() {
                         if (BleBeacon::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     BleBeacon::cleanup();
                     break;
@@ -952,7 +957,7 @@ void handleBluetoothSubmenuTouch() {
                         if (BleSniffer::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     BleSniffer::cleanup();
                     break;
@@ -977,7 +982,7 @@ void handleBluetoothSubmenuTouch() {
                         if (WhisperPair::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     WhisperPair::cleanup();
                     break;
@@ -988,7 +993,7 @@ void handleBluetoothSubmenuTouch() {
                         if (AirTagDetect::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     AirTagDetect::cleanup();
                     break;
@@ -997,7 +1002,7 @@ void handleBluetoothSubmenuTouch() {
                     while (!feature_exit_requested) {
                         LunaticFringe::loop();
                         if (LunaticFringe::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     LunaticFringe::cleanup();
                     break;
@@ -1150,7 +1155,7 @@ void handleSubGHzSubmenuTouch() {
                     while (!feature_exit_requested) {
                         SubBrute::loop();
                         if (SubBrute::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;  // BOOT button direct
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;  // BOOT button direct
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                     }
@@ -1166,7 +1171,7 @@ void handleSubGHzSubmenuTouch() {
                     while (!feature_exit_requested) {
                         SubJammer::loop();
                         if (SubJammer::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;  // BOOT button direct
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;  // BOOT button direct
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                     }
@@ -1177,7 +1182,7 @@ void handleSubGHzSubmenuTouch() {
                     while (!feature_exit_requested) {
                         SubAnalyzer::loop();
                         if (SubAnalyzer::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;  // BOOT button direct
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;  // BOOT button direct
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                     }
@@ -1257,7 +1262,7 @@ void handleRFIDSubmenuTouch() {
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                         if (isInoBackTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     RFIDScanner::cleanup();
                     break;
@@ -1269,7 +1274,7 @@ void handleRFIDSubmenuTouch() {
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                         if (isInoBackTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     RFIDReader::cleanup();
                     break;
@@ -1286,7 +1291,7 @@ void handleRFIDSubmenuTouch() {
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                         if (isInoBackTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     RFIDClone::cleanup();
                     break;
@@ -1303,7 +1308,7 @@ void handleRFIDSubmenuTouch() {
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                         if (isInoBackTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     RFIDBrute::cleanup();
                     break;
@@ -1320,7 +1325,7 @@ void handleRFIDSubmenuTouch() {
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                         if (isInoBackTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     RFIDEmulate::cleanup();
                     break;
@@ -1370,7 +1375,7 @@ void handleJamDetectSubmenuTouch() {
                         if (WiFiGuardian::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     WiFiGuardian::cleanup();
                     break;
@@ -1381,7 +1386,7 @@ void handleJamDetectSubmenuTouch() {
                         if (SubSentinel::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     SubSentinel::cleanup();
                     break;
@@ -1392,7 +1397,7 @@ void handleJamDetectSubmenuTouch() {
                         if (GHzWatchdog::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     GHzWatchdog::cleanup();
                     break;
@@ -1403,7 +1408,7 @@ void handleJamDetectSubmenuTouch() {
                         if (FullSpectrum::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) { delay(200); feature_exit_requested = true; }
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
                     }
                     FullSpectrum::cleanup();
                     break;
@@ -1456,7 +1461,7 @@ void handleSIGINTSubmenuTouch() {
                     while (!feature_exit_requested) {
                         EapolCapture::loop();
                         if (EapolCapture::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                         // No external isBackButtonTapped() — EAPOL handles its own
                         // back navigation internally (CAPTURE→SCAN→EXIT)
                     }
@@ -1472,7 +1477,7 @@ void handleSIGINTSubmenuTouch() {
                     while (!feature_exit_requested) {
                         KarmaAttack::loop();
                         if (KarmaAttack::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                     }
@@ -1486,7 +1491,7 @@ void handleSIGINTSubmenuTouch() {
                     while (!feature_exit_requested) {
                         SavedCaptures::loop();
                         if (SavedCaptures::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
                     }
@@ -1497,7 +1502,7 @@ void handleSIGINTSubmenuTouch() {
                     while (!feature_exit_requested) {
                         IotRecon::loop();
                         if (IotRecon::isExitRequested()) feature_exit_requested = true;
-                        if (digitalRead(0) == LOW) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     IotRecon::cleanup();
                     break;
@@ -2362,6 +2367,99 @@ void displayDeviceInfo() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CC1101 MODULE TYPE (Standard HW-863 / E07-433M20S PA)
+// ═══════════════════════════════════════════════════════════════════════════
+
+void displayCC1101ModuleScreen() {
+    tft.fillScreen(TFT_BLACK);
+    drawStatusBar();
+    drawInoIconBar();
+
+    drawGlitchTitle(60, "CC1101");
+
+    // Current mode display
+    tft.drawRoundRect(20, 95, 200, 50, 6, HALEHOUND_MAGENTA);
+    tft.setTextSize(2);
+    tft.setTextColor(HALEHOUND_HOTPINK, TFT_BLACK);
+    if (cc1101_pa_module) {
+        tft.setCursor(32, 108);
+        tft.print("E07 PA *");
+    } else {
+        tft.setCursor(28, 108);
+        tft.print("STANDARD");
+    }
+
+    // Description
+    tft.setTextSize(1);
+    tft.setTextColor(HALEHOUND_GUNMETAL);
+    if (cc1101_pa_module) {
+        tft.setCursor(20, 160);
+        tft.print("E07-433M20S (20dBm PA)");
+        tft.setCursor(20, 172);
+        tft.print("TX_EN=GPIO26  RX_EN=GPIO0");
+        tft.setCursor(20, 192);
+        tft.print("* = PA control pins active");
+    } else {
+        tft.setCursor(20, 160);
+        tft.print("Standard CC1101 (HW-863)");
+        tft.setCursor(20, 172);
+        tft.print("No PA control needed.");
+        tft.setCursor(20, 192);
+        tft.print("Select E07 PA if using the");
+        tft.setCursor(20, 204);
+        tft.print("E07-433M20S module.");
+    }
+
+    // Toggle button
+    tft.fillRect(50, 230, 140, 45, HALEHOUND_DARK);
+    tft.drawRect(50, 230, 140, 45, HALEHOUND_MAGENTA);
+    tft.setTextSize(2);
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.setCursor(65, 243);
+    tft.print("TOGGLE");
+}
+
+void cc1101ModuleLoop() {
+    displayCC1101ModuleScreen();
+
+    while (!feature_exit_requested) {
+        touchButtonsUpdate();
+
+        if (isInoBackTapped() || buttonPressed(BTN_BACK) || buttonPressed(BTN_BOOT)) {
+            feature_exit_requested = true;
+            saveSettings();
+            break;
+        }
+
+        // Toggle button
+        if (isTouchInArea(50, 230, 140, 45)) {
+            cc1101_pa_module = !cc1101_pa_module;
+
+            // Apply PA pin config immediately
+            #if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+            if (cc1101_pa_module) {
+                pinMode(CC1101_TX_EN, OUTPUT);
+                pinMode(CC1101_RX_EN, OUTPUT);
+                digitalWrite(CC1101_TX_EN, LOW);
+                digitalWrite(CC1101_RX_EN, LOW);
+                Serial.println("[CC1101] PA module enabled — TX_EN/RX_EN pins active");
+            } else {
+                digitalWrite(CC1101_TX_EN, LOW);
+                digitalWrite(CC1101_RX_EN, LOW);
+                Serial.println("[CC1101] PA module disabled — standard mode");
+            }
+            #endif
+
+            saveSettings();
+            displayCC1101ModuleScreen();
+            delay(300);
+        }
+
+        delay(50);
+    }
+}
+
 void handleSettingsSubmenuTouch() {
     touchButtonsUpdate();
 
@@ -2380,7 +2478,7 @@ void handleSettingsSubmenuTouch() {
             displaySubmenu();
             delay(200);
 
-            if (current_submenu_index == 8) { // Back
+            if (current_submenu_index == 9) { // Back
                 returnToMainMenu();
                 return;
             }
@@ -2412,6 +2510,9 @@ void handleSettingsSubmenuTouch() {
                     break;
                 case 7: // Set PIN
                     pinSetupLoop();
+                    break;
+                case 8: // CC1101 Module Type
+                    cc1101ModuleLoop();
                     break;
             }
 
@@ -3032,16 +3133,16 @@ void showBlueTeamBlockedScreen() {
     tft.drawRect(4, 4, SCREEN_WIDTH - 8, SCREEN_HEIGHT - 8, HALEHOUND_VIOLET);
 
     // Title — glitch in electric blue
-    drawGlitchTitle(100, "BLUE TEAM");
-    drawGlitchStatus(125, "MODE ACTIVE", HALEHOUND_VIOLET);
+    drawGlitchTitle(SCALE_Y(100), "BLUE TEAM");
+    drawGlitchStatus(SCALE_Y(125), "MODE ACTIVE", HALEHOUND_VIOLET);
 
     // Info text
-    drawCenteredText(160, "Offensive functions disabled", HALEHOUND_MAGENTA, 1);
-    drawCenteredText(180, "VALHALLA protocol engaged", HALEHOUND_GUNMETAL, 1);
+    drawCenteredText(SCALE_Y(160), "Offensive functions disabled", HALEHOUND_MAGENTA, 1);
+    drawCenteredText(SCALE_Y(180), "VALHALLA protocol engaged", HALEHOUND_GUNMETAL, 1);
 
     // Hint to unlock
-    drawCenteredText(220, "Tap offensive tool to unlock", HALEHOUND_GUNMETAL, 1);
-    drawCenteredText(235, "via disclaimer acceptance", HALEHOUND_GUNMETAL, 1);
+    drawCenteredText(SCALE_Y(220), "Tap offensive tool to unlock", HALEHOUND_GUNMETAL, 1);
+    drawCenteredText(SCALE_Y(235), "via disclaimer acceptance", HALEHOUND_GUNMETAL, 1);
 
     delay(2000);
 }
@@ -3077,7 +3178,7 @@ bool showDisclaimerScreen() {
     if (maxScroll < 0) maxScroll = 0;
 
     // Text area Y bounds
-    const int textAreaY = 210;
+    const int textAreaY = SCALE_Y(210);
     const int textAreaH = visibleLines * lineHeight;
 
     auto drawDisclaimerPage = [&]() {
@@ -3092,14 +3193,14 @@ bool showDisclaimerScreen() {
 
         // Disclaimer skull centered at top
         int skullX = (SCREEN_WIDTH - 120) / 2;
-        tft.drawBitmap(skullX, 10, bitmap_disclaimer_skull, 120, 160, VALHALLA_BLUE);
+        tft.drawBitmap(skullX, SCALE_Y(10), bitmap_disclaimer_skull, 120, 160, VALHALLA_BLUE);
 
         // Title — glitch Nosifer
-        drawGlitchTitle(175, "LIABILITY");
-        drawGlitchStatus(195, "DISCLAIMER", HALEHOUND_VIOLET);
+        drawGlitchTitle(SCALE_Y(175), "LIABILITY");
+        drawGlitchStatus(SCALE_Y(195), "DISCLAIMER", HALEHOUND_VIOLET);
 
         // Separator line
-        tft.drawLine(20, 205, SCREEN_WIDTH - 20, 205, HALEHOUND_VIOLET);
+        tft.drawLine(20, SCALE_Y(205), SCREEN_WIDTH - 20, SCALE_Y(205), HALEHOUND_VIOLET);
     };
 
     auto drawTextArea = [&]() {
@@ -3146,30 +3247,31 @@ bool showDisclaimerScreen() {
         }
     };
 
+    // Button dimensions (shared between draw and touch)
+    const int dBtnW = SCALE_W(95);
+    const int dBtnH = SCALE_H(32);
+    const int dBtnY = SCALE_Y(282);
+    const int dAcceptX = SCALE_X(15);
+    const int dDeclineX = SCREEN_WIDTH - dBtnW - SCALE_X(15);
+
     auto drawButtons = [&]() {
         // Separator above buttons
-        tft.drawLine(20, 275, SCREEN_WIDTH - 20, 275, HALEHOUND_VIOLET);
+        tft.drawLine(20, SCALE_Y(275), SCREEN_WIDTH - 20, SCALE_Y(275), HALEHOUND_VIOLET);
 
         // ACCEPT button — left side
-        int btnW = 95;
-        int btnH = 32;
-        int btnY = 282;
-        int acceptX = 15;
-        int declineX = SCREEN_WIDTH - btnW - 15;
-
-        tft.fillRoundRect(acceptX, btnY, btnW, btnH, 5, HALEHOUND_DARK);
-        tft.drawRoundRect(acceptX, btnY, btnW, btnH, 5, VALHALLA_PURPLE);
+        tft.fillRoundRect(dAcceptX, dBtnY, dBtnW, dBtnH, 5, HALEHOUND_DARK);
+        tft.drawRoundRect(dAcceptX, dBtnY, dBtnW, dBtnH, 5, VALHALLA_PURPLE);
         tft.setTextSize(1);
         tft.setTextColor(HALEHOUND_HOTPINK);
-        tft.setCursor(acceptX + 20, btnY + 12);
+        tft.setCursor(dAcceptX + 20, dBtnY + (dBtnH - 8) / 2);
         tft.print("ACCEPT");
 
         // DECLINE button — right side
-        tft.fillRoundRect(declineX, btnY, btnW, btnH, 5, HALEHOUND_DARK);
-        tft.drawRoundRect(declineX, btnY, btnW, btnH, 5, HALEHOUND_GUNMETAL);
+        tft.fillRoundRect(dDeclineX, dBtnY, dBtnW, dBtnH, 5, HALEHOUND_DARK);
+        tft.drawRoundRect(dDeclineX, dBtnY, dBtnW, dBtnH, 5, HALEHOUND_GUNMETAL);
         tft.setTextSize(1);
         tft.setTextColor(HALEHOUND_GUNMETAL);
-        tft.setCursor(declineX + 15, btnY + 12);
+        tft.setCursor(dDeclineX + 15, dBtnY + (dBtnH - 8) / 2);
         tft.print("DECLINE");
     };
 
@@ -3204,18 +3306,12 @@ bool showDisclaimerScreen() {
         if (getTouchPoint(&tx, &ty)) {
             consumeTouch();
 
-            int btnW = 95;
-            int btnH = 32;
-            int btnY = 282;
-            int acceptX = 15;
-            int declineX = SCREEN_WIDTH - btnW - 15;
-
             // ACCEPT button
-            if (tx >= acceptX && tx <= acceptX + btnW && ty >= btnY && ty <= btnY + btnH) {
+            if (tx >= dAcceptX && tx <= dAcceptX + dBtnW && ty >= dBtnY && ty <= dBtnY + dBtnH) {
                 // Flash button
-                tft.fillRoundRect(acceptX, btnY, btnW, btnH, 5, VALHALLA_PURPLE);
+                tft.fillRoundRect(dAcceptX, dBtnY, dBtnW, dBtnH, 5, VALHALLA_PURPLE);
                 tft.setTextColor(TFT_WHITE);
-                tft.setCursor(acceptX + 20, btnY + 12);
+                tft.setCursor(dAcceptX + 20, dBtnY + (dBtnH - 8) / 2);
                 tft.print("ACCEPT");
                 delay(300);
 
@@ -3228,7 +3324,7 @@ bool showDisclaimerScreen() {
             }
 
             // DECLINE button
-            if (tx >= declineX && tx <= declineX + btnW && ty >= btnY && ty <= btnY + btnH) {
+            if (tx >= dDeclineX && tx <= dDeclineX + dBtnW && ty >= dBtnY && ty <= dBtnY + dBtnH) {
                 delay(200);
                 return false;
             }
@@ -3282,112 +3378,115 @@ void activateValhalla() {
 
     // Disclaimer skull centered — pulsing red
     int skullX = (SCREEN_WIDTH - 120) / 2;
-    tft.drawBitmap(skullX, 10, bitmap_disclaimer_skull, 120, 160, TFT_RED);
+    tft.drawBitmap(skullX, SCALE_Y(10), bitmap_disclaimer_skull, 120, 160, TFT_RED);
 
     // Title
-    drawGlitchTitle(175, "VALHALLA");
-    drawGlitchStatus(195, "PROTOCOL", HALEHOUND_VIOLET);
+    drawGlitchTitle(SCALE_Y(175), "VALHALLA");
+    drawGlitchStatus(SCALE_Y(195), "PROTOCOL", HALEHOUND_VIOLET);
 
     // Separator
-    tft.drawLine(20, 207, SCREEN_WIDTH - 20, 207, TFT_RED);
+    tft.drawLine(20, SCALE_Y(207), SCREEN_WIDTH - 20, SCALE_Y(207), TFT_RED);
 
     // Warning text
-    drawCenteredText(215, "ACTIVATE SCORCHED EARTH?", HALEHOUND_HOTPINK, 1);
+    drawCenteredText(SCALE_Y(215), "ACTIVATE SCORCHED EARTH?", HALEHOUND_HOTPINK, 1);
     tft.setTextSize(1);
     tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.setCursor(30, 232);
+    tft.setCursor(SCALE_X(30), SCALE_Y(232));
     tft.print("- Wipe SD card");
-    tft.setCursor(30, 244);
+    tft.setCursor(SCALE_X(30), SCALE_Y(244));
     tft.print("- Lock all offensive tools");
-    tft.setCursor(30, 256);
+    tft.setCursor(SCALE_X(30), SCALE_Y(256));
     tft.print("- Enter Blue Team mode");
 
     // Separator
-    tft.drawLine(20, 268, SCREEN_WIDTH - 20, 268, HALEHOUND_VIOLET);
+    tft.drawLine(20, SCALE_Y(268), SCREEN_WIDTH - 20, SCALE_Y(268), HALEHOUND_VIOLET);
 
     // HOLD TO CONFIRM button (left)
-    int confirmX = 10;
-    int confirmW = 130;
-    int confirmH = 32;
-    int confirmY = 275;
+    int confirmX = SCALE_X(10);
+    int confirmW = SCALE_W(130);
+    int confirmH = SCALE_H(32);
+    int confirmY = SCALE_Y(275);
     tft.fillRoundRect(confirmX, confirmY, confirmW, confirmH, 5, HALEHOUND_DARK);
     tft.drawRoundRect(confirmX, confirmY, confirmW, confirmH, 5, TFT_RED);
     tft.setTextSize(1);
     tft.setTextColor(TFT_RED);
-    tft.setCursor(confirmX + 8, confirmY + 12);
+    tft.setCursor(confirmX + 8, confirmY + (confirmH - 8) / 2);
     tft.print("HOLD 3s CONFIRM");
 
     // CANCEL button (right)
-    int cancelX = 150;
-    int cancelW = 80;
-    int cancelH = 32;
-    int cancelY = 275;
+    int cancelX = SCALE_X(150);
+    int cancelW = SCALE_W(80);
+    int cancelH = SCALE_H(32);
+    int cancelY = SCALE_Y(275);
     tft.fillRoundRect(cancelX, cancelY, cancelW, cancelH, 5, HALEHOUND_DARK);
     tft.drawRoundRect(cancelX, cancelY, cancelW, cancelH, 5, HALEHOUND_GUNMETAL);
     tft.setTextColor(HALEHOUND_GUNMETAL);
-    tft.setCursor(cancelX + 15, cancelY + 12);
+    tft.setCursor(cancelX + 15, cancelY + (cancelH - 8) / 2);
     tft.print("CANCEL");
 
     // Hold-to-confirm logic
+    // GT911 (3.5" CYD) edge-trigger kills sustained touch after first frame.
+    // Fix: use getTouchPoint() for initial detection, isStillTouched() during hold.
     unsigned long holdStart = 0;
     bool holding = false;
     const unsigned long holdDuration = 3000;  // 3 seconds
 
     while (true) {
-        touchButtonsUpdate();
-
-        // BOOT button = cancel
-        if (buttonPressed(BTN_BOOT)) {
+        // BOOT button = cancel (direct GPIO — no touchButtonsUpdate needed)
+        if (IS_BOOT_PRESSED()) {
             delay(200);
             return;
         }
 
-        uint16_t tx, ty;
-        bool touched = getTouchPoint(&tx, &ty);
+        if (!holding) {
+            // Waiting for initial touch — edge-triggered getTouchPoint()
+            uint16_t tx, ty;
+            bool touched = getTouchPoint(&tx, &ty);
 
-        // Check CANCEL button
-        if (touched && tx >= cancelX && tx <= cancelX + cancelW &&
-            ty >= cancelY && ty <= cancelY + cancelH) {
-            consumeTouch();
-            delay(200);
-            return;
-        }
+            // Check CANCEL button
+            if (touched && tx >= cancelX && tx <= cancelX + cancelW &&
+                ty >= cancelY && ty <= cancelY + cancelH) {
+                consumeTouch();
+                delay(200);
+                return;
+            }
 
-        // Check CONFIRM button hold
-        if (touched && tx >= confirmX && tx <= confirmX + confirmW &&
-            ty >= confirmY && ty <= confirmY + confirmH) {
-            if (!holding) {
+            // Check CONFIRM button — start hold
+            if (touched && tx >= confirmX && tx <= confirmX + confirmW &&
+                ty >= confirmY && ty <= confirmY + confirmH) {
                 holdStart = millis();
                 holding = true;
             }
-
-            // Draw progress bar inside button
-            unsigned long elapsed = millis() - holdStart;
-            int progress = map(min(elapsed, holdDuration), 0, holdDuration, 0, confirmW - 4);
-            tft.fillRect(confirmX + 2, confirmY + 2, progress, confirmH - 4, TFT_RED);
-
-            // Re-draw text on top of progress
-            tft.setTextSize(1);
-            tft.setTextColor(TFT_WHITE);
-            tft.setCursor(confirmX + 8, confirmY + 12);
-            tft.print("HOLD 3s CONFIRM");
-
-            if (elapsed >= holdDuration) {
-                // Confirmed! Flash white
-                tft.fillRoundRect(confirmX, confirmY, confirmW, confirmH, 5, TFT_WHITE);
-                delay(200);
-                break;  // Proceed to Phase 2
-            }
         } else {
-            if (holding) {
-                // Released early — reset
+            // Holding — use level-triggered isStillTouched() to track finger
+            // (bypasses GT911 edge-trigger that would kill the hold)
+            if (!isStillTouched()) {
+                // Finger lifted — reset hold
                 holding = false;
                 tft.fillRoundRect(confirmX, confirmY, confirmW, confirmH, 5, HALEHOUND_DARK);
                 tft.drawRoundRect(confirmX, confirmY, confirmW, confirmH, 5, TFT_RED);
                 tft.setTextSize(1);
                 tft.setTextColor(TFT_RED);
-                tft.setCursor(confirmX + 8, confirmY + 12);
+                tft.setCursor(confirmX + 8, confirmY + (confirmH - 8) / 2);
                 tft.print("HOLD 3s CONFIRM");
+            } else {
+                // Still touching — draw progress bar inside button
+                unsigned long elapsed = millis() - holdStart;
+                int progress = map(min(elapsed, holdDuration), 0, holdDuration, 0, confirmW - 4);
+                tft.fillRect(confirmX + 2, confirmY + 2, progress, confirmH - 4, TFT_RED);
+
+                // Re-draw text on top of progress
+                tft.setTextSize(1);
+                tft.setTextColor(TFT_WHITE);
+                tft.setCursor(confirmX + 8, confirmY + (confirmH - 8) / 2);
+                tft.print("HOLD 3s CONFIRM");
+
+                if (elapsed >= holdDuration) {
+                    // Confirmed! Flash white
+                    tft.fillRoundRect(confirmX, confirmY, confirmW, confirmH, 5, TFT_WHITE);
+                    delay(200);
+                    break;  // Proceed to Phase 2
+                }
             }
         }
 
@@ -3399,20 +3498,20 @@ void activateValhalla() {
     tft.drawBitmap(0, 0, skull_bg_bitmap, SKULL_BG_WIDTH, SKULL_BG_HEIGHT, 0x4000);  // Dark red watermark
     tft.drawRect(2, 2, SCREEN_WIDTH - 4, SCREEN_HEIGHT - 4, TFT_RED);
 
-    drawGlitchTitle(60, "VALHALLA");
+    drawGlitchTitle(SCALE_Y(60), "VALHALLA");
 
     // Progress bar
     int barX = 20;
-    int barY = 140;
+    int barY = SCALE_Y(140);
     int barW = SCREEN_WIDTH - 40;
-    int barH = 20;
+    int barH = SCALE_H(20);
 
     auto updateProgress = [&](int percent, const char* status) {
         // Status text
-        tft.fillRect(barX, barY - 20, barW, 18, TFT_BLACK);
+        tft.fillRect(barX, barY - SCALE_H(20), barW, SCALE_H(18), TFT_BLACK);
         tft.setTextSize(1);
         tft.setTextColor(HALEHOUND_HOTPINK);
-        tft.setCursor(barX, barY - 18);
+        tft.setCursor(barX, barY - SCALE_H(18));
         tft.print(status);
 
         // Progress bar
@@ -3453,7 +3552,7 @@ void activateValhalla() {
     delay(1000);
 
     // Step 5: Reboot
-    drawCenteredText(200, "REBOOTING...", TFT_RED, 1);
+    drawCenteredText(SCALE_Y(200), "REBOOTING...", TFT_RED, 1);
     delay(500);
     ESP.restart();
 }
@@ -3849,9 +3948,39 @@ void setup() {
     // or standard CYD firmware on a hat board BEFORE they waste time debugging
     // ═══════════════════════════════════════════════════════════════════════
     {
-        SPI.begin(RADIO_SPI_SCK, RADIO_SPI_MISO, RADIO_SPI_MOSI, NRF24_CSN);
-        nrf24Radio.begin();
-        bool nrfFound = nrf24Radio.isChipConnected();
+        // Properly claim SPI for NRF24 check
+        SPI.end();
+        delay(10);
+        pinMode(NRF24_CE, OUTPUT);
+        digitalWrite(NRF24_CE, LOW);
+        digitalWrite(NRF24_CSN, HIGH);
+        digitalWrite(CC1101_CS, HIGH);
+        digitalWrite(SD_CS, HIGH);
+        digitalWrite(PN532_CS, HIGH);
+
+        SPI.begin(VSPI_SCK, VSPI_MISO, VSPI_MOSI);
+        delay(150);  // PA+LNA settling time
+
+        // Raw SPI probe — read SETUP_AW register (0x03)
+        SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
+        digitalWrite(NRF24_CSN, LOW);
+        delayMicroseconds(5);
+        uint8_t nrfStatus = SPI.transfer(0x03);
+        uint8_t nrfSetupAw = SPI.transfer(0xFF);
+        digitalWrite(NRF24_CSN, HIGH);
+        SPI.endTransaction();
+
+        bool nrfFound = (nrfSetupAw >= 0x01 && nrfSetupAw <= 0x03);
+        Serial.printf("[INIT] NRF24 check: STATUS=0x%02X SETUP_AW=0x%02X → %s\n",
+                      nrfStatus, nrfSetupAw, nrfFound ? "OK" : "NOT FOUND");
+
+        // Clean up — restore SPI to spiManager state
+        SPI.end();
+        SPI.begin(VSPI_SCK, VSPI_MISO, VSPI_MOSI);
+        digitalWrite(NRF24_CSN, HIGH);
+        digitalWrite(CC1101_CS, HIGH);
+        digitalWrite(SD_CS, HIGH);
+        digitalWrite(PN532_CS, HIGH);
 
         if (!nrfFound) {
             // NRF24 not responding on compiled pin config — likely wrong firmware
@@ -3924,6 +4053,25 @@ void setup() {
         tft.invertDisplay(true);
     }
     Serial.println("[INIT] Settings loaded");
+
+    // E32R28T: Shut down SC8002B amp immediately (GPIO 4 = amp enable)
+    // Must happen BEFORE PA init — prevents 6.5mA quiescent draw from floating pin
+    #if CYD_HAS_AMP
+    pinMode(CC1101_TX_EN, OUTPUT);
+    digitalWrite(CC1101_TX_EN, LOW);   // LOW = amp shutdown
+    Serial.println("[INIT] E32R28T SC8002B amp shut down (GPIO 4 LOW)");
+    #endif
+
+    // Initialize CC1101 PA pins if E07 module enabled
+    #if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        pinMode(CC1101_TX_EN, OUTPUT);
+        pinMode(CC1101_RX_EN, OUTPUT);
+        digitalWrite(CC1101_TX_EN, LOW);
+        digitalWrite(CC1101_RX_EN, LOW);
+        Serial.println("[INIT] CC1101 PA module — TX_EN/RX_EN pins initialized");
+    }
+    #endif
 
     // Auto-trigger touch calibration on first boot (uncalibrated board)
     {

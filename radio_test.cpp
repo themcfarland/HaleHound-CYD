@@ -152,12 +152,12 @@ static void runNrfTest(int statusY, int hintY) {
             // Bus reads all zeros — chip not powered or CS not connected
             snprintf(msg, sizeof(msg), "FAIL  STATUS=0x00 (no power?)");
             drawStatusLine(statusY, msg, TFT_RED);
-            drawStatusLine(hintY, "Check 3.3V and CSN wire (GPIO 4)", TFT_YELLOW);
+            { char hint[48]; snprintf(hint, sizeof(hint), "Check 3.3V and CSN wire (GPIO %d)", NRF24_CSN); drawStatusLine(hintY, hint, TFT_YELLOW); }
         } else {
             // 0xFF = MISO stuck high — no chip pulling line down
             snprintf(msg, sizeof(msg), "FAIL  STATUS=0xFF (MISO stuck)");
             drawStatusLine(statusY, msg, TFT_RED);
-            drawStatusLine(hintY, "Check MISO (GPIO 19) and CSN (GPIO 4)", TFT_YELLOW);
+            { char hint[48]; snprintf(hint, sizeof(hint), "Check MISO (GPIO 19) and CSN (GPIO %d)", NRF24_CSN); drawStatusLine(hintY, hint, TFT_YELLOW); }
         }
         return;
     }
@@ -412,8 +412,10 @@ static void drawNrf24Diagram() {
     drawPinTrace(py, "IO18",  "SCK",  TFT_CYAN,           false);  py += pinSpace;
     drawPinTrace(py, "IO23",  "MOSI", TFT_CYAN,           false);  py += pinSpace;
     drawPinTrace(py, "IO19",  "MISO", TFT_CYAN,           false);  py += pinSpace;
-    drawPinTrace(py, "IO4",   "CSN",  HALEHOUND_MAGENTA,  false);  py += pinSpace;
-    drawPinTrace(py, "IO16",  "CE",   HALEHOUND_MAGENTA,  false);  py += pinSpace;
+    { char csnLabel[8]; snprintf(csnLabel, sizeof(csnLabel), "IO%d", NRF24_CSN);
+    drawPinTrace(py, csnLabel, "CSN", HALEHOUND_MAGENTA,  false); }  py += pinSpace;
+    { char ceLabel[8]; snprintf(ceLabel, sizeof(ceLabel), "IO%d", NRF24_CE);
+    drawPinTrace(py, ceLabel, "CE",   HALEHOUND_MAGENTA,  false); }  py += pinSpace;
     drawPinTrace(py, "IO17",  "IRQ",  HALEHOUND_GUNMETAL, true);
 
     // Notes

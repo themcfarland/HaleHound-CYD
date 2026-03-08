@@ -30,6 +30,32 @@
 extern TFT_eSPI tft;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// CC1101 PA MODULE CONTROL (E07-433M20S)
+// Same wrappers as subghz_attacks.cpp — static to avoid link conflicts
+// ═══════════════════════════════════════════════════════════════════════════
+
+static void cc1101PaSetRx() {
+    #if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        digitalWrite(CC1101_TX_EN, LOW);
+        delayMicroseconds(2);
+        digitalWrite(CC1101_RX_EN, HIGH);
+    }
+    #endif
+    ELECHOUSE_cc1101.SetRx();
+}
+
+static void cc1101PaSetIdle() {
+    ELECHOUSE_cc1101.setSidle();
+    #if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        digitalWrite(CC1101_TX_EN, LOW);
+        digitalWrite(CC1101_RX_EN, LOW);
+    }
+    #endif
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // SHARED CONSTANTS & HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -793,7 +819,7 @@ static unsigned long lastPulse = 0;
 static void scanAllFreqs() {
     for (int ch = 0; ch < FREQ_COUNT; ch++) {
         ELECHOUSE_cc1101.setMHZ(freqListMHz[ch]);
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
         delayMicroseconds(450);
         int rssi1 = ELECHOUSE_cc1101.getRssi();
         delayMicroseconds(150);
@@ -912,7 +938,7 @@ void setup() {
 
     ELECHOUSE_cc1101.Init();
     ELECHOUSE_cc1101.setRxBW(812.5);
-    ELECHOUSE_cc1101.SetRx();
+    cc1101PaSetRx();
 
     memset((void*)rssiNow, 0, sizeof(rssiNow));
     memset(rssiBaseline, 0, sizeof(rssiBaseline));
@@ -1047,7 +1073,7 @@ bool isExitRequested() { return exitRequested; }
 
 void cleanup() {
     stopScanTask();
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
     spiDeselect();
     initialized = false;
     exitRequested = false;
@@ -1597,14 +1623,14 @@ static void fsScanSubGHz() {
     };
     for (int ch = 0; ch < 33 && fsScanRunning; ch++) {
         ELECHOUSE_cc1101.setMHZ(freqs[ch]);
-        ELECHOUSE_cc1101.SetRx();
+        cc1101PaSetRx();
         delayMicroseconds(450);
         int r1 = ELECHOUSE_cc1101.getRssi();
         delayMicroseconds(150);
         int r2 = ELECHOUSE_cc1101.getRssi();
         fsSubRssi[ch] = (int8_t)constrain(max(r1, r2), -128, 127);
     }
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
 }
 
 static void fsScanNRF24() {
@@ -2025,7 +2051,7 @@ void cleanup() {
     esp_wifi_stop();
     esp_wifi_deinit();
     WiFi.mode(WIFI_OFF);
-    ELECHOUSE_cc1101.setSidle();
+    cc1101PaSetIdle();
     digitalWrite(NRF24_CE, LOW);
     spiDeselect();
     initialized = false;

@@ -376,7 +376,7 @@ void runTouchTest() {
         delay(30);
     }
 
-    while (digitalRead(BOOT_BUTTON) == LOW) delay(10);
+    while (IS_BOOT_PRESSED()) delay(10);
     tft.fillScreen(TFT_BLACK);
 }
 
@@ -608,7 +608,7 @@ bool isTouchInArea(int x, int y, int w, int h) {
 
 // Check if BOOT button (GPIO0) is pressed
 bool isBootButtonPressed() {
-    return (digitalRead(BOOT_BUTTON) == LOW);
+    return (IS_BOOT_PRESSED());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -645,7 +645,7 @@ void touchButtonsUpdate() {
     }
 
     // Check hardware BOOT button
-    if (digitalRead(BOOT_BUTTON) == LOW) {
+    if (IS_BOOT_PRESSED()) {
         touchedButton = BTN_BOOT;
     }
 
@@ -815,7 +815,7 @@ bool isBackPressed() {
     }
 
     // BOOT button also works as back
-    if (digitalRead(BOOT_BUTTON) == LOW) {
+    if (IS_BOOT_PRESSED()) {
         return true;
     }
 
@@ -964,7 +964,7 @@ void runTouchCalibration() {
     tft.setCursor(20, CYD_SCREEN_HEIGHT / 2 + 60);
     tft.println("BOOT button = exit");
     while (digitalRead(BOOT_BUTTON) == HIGH) delay(10);
-    while (digitalRead(BOOT_BUTTON) == LOW) delay(10);
+    while (IS_BOOT_PRESSED()) delay(10);
     tft.fillScreen(TFT_BLACK);
 #else
     // 4-corner calibration — captures raw values, computes mapping, saves to EEPROM
@@ -997,7 +997,7 @@ void runTouchCalibration() {
     unsigned long skipStart = millis();
     bool skipped = false;
     while (millis() - skipStart < 5000) {
-        if (digitalRead(BOOT_BUTTON) == LOW) {
+        if (IS_BOOT_PRESSED()) {
             skipped = true;
             break;
         }
@@ -1069,7 +1069,7 @@ void runTouchCalibration() {
         tft.print("[SKIP]");
         bool cancelled = false;
         while (!touch.touched()) {
-            if (digitalRead(BOOT_BUTTON) == LOW) {
+            if (IS_BOOT_PRESSED()) {
                 cancelled = true;
                 break;
             }
@@ -1240,7 +1240,7 @@ void runTouchCalibration() {
         }
         delay(30);
     }
-    while (digitalRead(BOOT_BUTTON) == LOW) delay(10);
+    while (IS_BOOT_PRESSED()) delay(10);
 
     tft.fillScreen(TFT_BLACK);
 #endif
@@ -1309,7 +1309,7 @@ void printTouchDebug() {
     Serial.printf("  calibrated: %s\n", touch_calibrated ? "YES" : "NO (defaults)");
 #endif
 
-    Serial.println("BOOT btn:   " + String(digitalRead(BOOT_BUTTON) == LOW ? "PRESSED" : "released"));
+    Serial.println("BOOT btn:   " + String(IS_BOOT_PRESSED() ? "PRESSED" : "released"));
     Serial.println("───────────────────────────────────────");
     Serial.println("Button states:");
 

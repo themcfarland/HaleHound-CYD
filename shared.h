@@ -80,6 +80,9 @@ extern bool gps_has_fix;
 extern bool disclaimer_accepted;    // Legal disclaimer accepted (persisted in EEPROM)
 extern bool blue_team_mode;         // VALHALLA blue team mode active (persisted in EEPROM)
 
+// CC1101 PA MODULE STATE
+extern bool cc1101_pa_module;       // E07-433M20S PA module active (persisted in EEPROM)
+
 // ═══════════════════════════════════════════════════════════════════════════
 // FUNCTION DECLARATIONS
 // ═══════════════════════════════════════════════════════════════════════════
