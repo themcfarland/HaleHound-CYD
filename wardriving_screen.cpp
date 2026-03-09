@@ -18,6 +18,7 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <BLEDevice.h>
+#include <esp_bt.h>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EXTERNAL OBJECTS
@@ -487,12 +488,23 @@ static void wdRunScan() {
 // Based on proven BleSniffer pattern from bluetooth_attacks.cpp
 // ═══════════════════════════════════════════════════════════════════════════
 
+static bool wdClassicBtReleased = false;
+
 static void wdRunBleScan() {
     Serial.println("[WARDRIVING] BLE scan phase starting...");
 
     // Step 1: Tear down WiFi to free the radio
     WiFi.mode(WIFI_OFF);
     delay(50);
+
+    // Release Classic BT memory on first BLE cycle — we only use BLE, never Classic.
+    // This frees ~28KB of heap that Bluedroid would otherwise reserve for Classic BT.
+    // Must be called BEFORE esp_bt_controller_init() (which BLEDevice::init triggers).
+    // One-shot: once released, the memory stays free for all subsequent BLE cycles.
+    if (!wdClassicBtReleased) {
+        esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+        wdClassicBtReleased = true;
+    }
 
     // Step 2: Init BLE
     BLEDevice::init("");
@@ -599,6 +611,19 @@ void wardrivingScreen() {
     wdSessionStart = 0;
     wdBleScan = nullptr;
     wdBleResultCount = 0;
+
+    // Disable CC1101 PA module pins during wardriving — wardriving uses WiFi + BLE
+    // only, CC1101 is idle. GPIO 0 (RX_EN) is a strapping pin — if left as OUTPUT
+    // during repeated WiFi↔BLE radio transitions, the radio subsystem can corrupt
+    // its state and crash the chip (~60 seconds in). Setting both PA pins to INPUT
+    // (high-Z) removes the conflict entirely.
+#if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        pinMode(CC1101_RX_EN, INPUT);   // GPIO 0 — release strapping pin
+        pinMode(CC1101_TX_EN, INPUT);   // GPIO 4 — release TX enable
+        Serial.println("[WARDRIVING] PA module pins set to INPUT (high-Z) for safe radio cycling");
+    }
+#endif
 
     // Force clean WiFi state — previous module may have used raw esp_wifi_stop()
     // which desyncs Arduino's _esp_wifi_started flag. WiFi.mode(WIFI_OFF) resets it.
@@ -718,6 +743,17 @@ void wardrivingScreen() {
     // Kill WiFi — MUST use Arduino API to keep _esp_wifi_started flag in sync
     // Raw esp_wifi_stop() desyncs the flag and silently breaks WiFi for all modules after
     WiFi.mode(WIFI_OFF);
+
+    // Restore CC1101 PA module pins to their boot state
+#if defined(CC1101_TX_EN) && defined(CC1101_RX_EN)
+    if (cc1101_pa_module) {
+        pinMode(CC1101_TX_EN, OUTPUT);
+        digitalWrite(CC1101_TX_EN, LOW);
+        pinMode(CC1101_RX_EN, OUTPUT);
+        digitalWrite(CC1101_RX_EN, LOW);
+        Serial.println("[WARDRIVING] PA module pins restored to OUTPUT LOW");
+    }
+#endif
 
     // Stop GPS background and restore Serial
     gpsStopBackground();

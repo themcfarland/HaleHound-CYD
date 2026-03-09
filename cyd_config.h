@@ -606,7 +606,7 @@
 
 // Submenu layout
 #define SUBMENU_Y_START     SCALE_Y(30)     // First item Y
-#define SUBMENU_Y_SPACING   SCALE_Y(30)     // Gap between items
+#define SUBMENU_Y_SPACING   SCALE_Y(28)     // Gap between items
 #define SUBMENU_LAST_GAP    SCALE_Y(10)     // Extra gap before "Back" item
 #define SUBMENU_TOUCH_W     (CYD_SCREEN_WIDTH - 20)  // Touch hit area width
 #define SUBMENU_TOUCH_H     SCALE_Y(25)     // Touch hit area height

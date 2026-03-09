@@ -3580,9 +3580,14 @@ void handleButtons() {
             last_interaction_time = millis();
             if (device_locked) {
                 showPinLockScreen();
-                // After unlock, force full menu redraw
-                menu_initialized = false;
-                displayMenu();
+                // Restore correct screen based on navigation state
+                if (in_sub_menu) {
+                    submenu_initialized = false;
+                    displaySubmenu();
+                } else {
+                    menu_initialized = false;
+                    displayMenu();
+                }
             }
             delay(300);
         }

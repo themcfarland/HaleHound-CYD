@@ -319,8 +319,8 @@ static void drawWiringText() {
 
     tft.setTextFont(1);
     tft.setTextSize(1);
-    int y = SCALE_Y(80);
-    int lineH = 12;
+    int y = SCALE_Y(75);
+    int lineH = 10;
 
     // NRF24 section
     tft.setTextColor(TFT_CYAN, TFT_BLACK);
@@ -336,15 +336,7 @@ static void drawWiringText() {
     tft.setCursor(10, y);  tft.printf("SCK  = GPIO %-3d MOSI= GPIO %d", VSPI_SCK, VSPI_MOSI);
     y += lineH;
     tft.setCursor(10, y);  tft.printf("MISO = GPIO %-3d IRQ = N/C", VSPI_MISO);
-    y += lineH;
-
-    tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
-    tft.setCursor(10, y);  tft.print("IRQ not used (optional)");
-    y += lineH;
-
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.setCursor(10, y);  tft.print("TIP: Use clean 3.3V source!");
-    y += lineH + 6;
+    y += lineH + 4;
 
     // CC1101 section
     tft.setTextColor(TFT_CYAN, TFT_BLACK);
@@ -364,7 +356,7 @@ static void drawWiringText() {
 
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
     tft.setCursor(10, y);  tft.print("GDO0=TX(out) GDO2=RX(in)");
-    y += lineH + 6;
+    y += lineH + 4;
 
     // PN532 section
     tft.setTextColor(TFT_CYAN, TFT_BLACK);
@@ -382,15 +374,12 @@ static void drawWiringText() {
 
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
     tft.setCursor(10, y);  tft.print("DIP: Both switches SPI mode");
-    y += lineH + 6;
+    y += lineH + 4;
 
     // Shared SPI note
     tft.setTextColor(HALEHOUND_HOTPINK, TFT_BLACK);
     tft.setCursor(10, y);
-    tft.print("All radios + SD + PN532 = VSPI");
-    y += lineH;
-    tft.setCursor(10, y);
-    tft.printf("SD CS = GPIO %d", SD_CS);
+    tft.printf("All radios + SD + PN532 = VSPI  SD CS=%d", SD_CS);
 
     drawPageNav(0, WIRING_NUM_PAGES);
 }

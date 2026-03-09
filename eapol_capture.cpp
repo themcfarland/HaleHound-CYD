@@ -866,8 +866,12 @@ static void drawCaptureScreen() {
     drawStatusBar();
     drawECIconBar();
 
-    // Target SSID as title
-    drawGlitchText(SCALE_Y(55), apList[selectedAP].ssid, &Nosifer_Regular10pt7b);
+    // Target SSID as title — truncate to fit Nosifer font (1.5x wider than normal)
+    char titleSSID[17];
+    int maxTitle = (SCREEN_WIDTH > 240) ? 18 : 14;
+    strncpy(titleSSID, apList[selectedAP].ssid, maxTitle);
+    titleSSID[maxTitle] = '\0';
+    drawGlitchText(SCALE_Y(55), titleSSID, &Nosifer_Regular10pt7b);
     tft.drawLine(0, SCALE_Y(58), SCREEN_WIDTH, SCALE_Y(58), HALEHOUND_MAGENTA);
 
     // Target info frame

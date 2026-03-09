@@ -826,6 +826,8 @@ void setup() {
         ELECHOUSE_cc1101.Init();
         ELECHOUSE_cc1101.setCCMode(0);       // Raw/RCSwitch mode - enables serial data on GDO2
         ELECHOUSE_cc1101.setModulation(2);   // ASK/OOK modulation
+        ELECHOUSE_cc1101.setRxBW(135.0);     // Narrow RX bandwidth — rejects off-freq noise
+        ELECHOUSE_cc1101.setDRate(4.8);       // Low data rate — matches OOK remote timing
         ELECHOUSE_cc1101.setMHZ(frequencyList[currentFreqIndex] / 1000000.0);
         cc1101PaSetRx();
 
@@ -3272,12 +3274,24 @@ static void initHeatPalette() {
 #define NOISE_GATE 15       // Raw levels below this = hard cutoff
 #define DISPLAY_THRESH 40   // Boosted levels below this = still black (kills noise floor color)
 
+// Pre-computed cube root lookup table — replaces powf() per pixel
+static uint8_t displayLUT[126];  // displayLevel(0..125)
+static bool displayLUTReady = false;
+
+static void initDisplayLUT() {
+    displayLUT[0] = 0;
+    for (int i = 1; i <= 125; i++) {
+        if (i < NOISE_GATE) { displayLUT[i] = 0; continue; }
+        float normalized = (float)(i - NOISE_GATE) / (float)(125 - NOISE_GATE);
+        uint8_t boosted = (uint8_t)(powf(normalized, 0.33f) * 125.0f);
+        displayLUT[i] = (boosted < DISPLAY_THRESH) ? 0 : boosted;
+    }
+    displayLUTReady = true;
+}
+
 static uint8_t displayLevel(uint8_t raw) {
-    if (raw < NOISE_GATE) return 0;
-    float normalized = (float)(raw - NOISE_GATE) / (float)(125 - NOISE_GATE);
-    uint8_t boosted = (uint8_t)(powf(normalized, 0.33f) * 125.0f);  // Cube root — fast color ramp
-    if (boosted < DISPLAY_THRESH) return 0;  // Noise floor reads ~37 after boost → stays BLACK
-    return boosted;
+    if (raw > 125) raw = 125;
+    return displayLUT[raw];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3462,20 +3476,24 @@ static void scanAllFrequencies() {
     for (int ch = 0; ch < frequencyCount && scanning && !exitRequested; ch++) {
         ELECHOUSE_cc1101.setMHZ(frequencyListMHz[ch]);
         cc1101PaSetRx();
-        delayMicroseconds(450);  // 450us settle — CC1101 synth needs more than NRF24
+        delayMicroseconds(250);  // 250us settle — CC1101 PLL locks in ~75us, extra margin for RSSI
 
         // Double RSSI read — OOK remotes pulse on/off, one read often catches "off"
         int rssi1 = ELECHOUSE_cc1101.getRssi();
-        delayMicroseconds(150);
+        delayMicroseconds(50);
         int rssi2 = ELECHOUSE_cc1101.getRssi();
         int rssi = max(rssi1, rssi2);  // Take the stronger reading
 
         uint8_t level = rssiToLevel(rssi);
         rssiLevels[ch] = level;
 
-        // Exponential smoothing (matches NRF24 Analyzer pattern)
-        // 50/50 blend: smooth rise AND fall for buttery bar animation
-        peakLevels[ch] = (peakLevels[ch] + level) / 2;
+        // Asymmetric smoothing — fast attack (75% new), slower decay (50% old)
+        // Bars snap up instantly on signal, fade down smoothly
+        if (level > peakLevels[ch]) {
+            peakLevels[ch] = (peakLevels[ch] + 3 * level) / 4;  // Fast rise
+        } else {
+            peakLevels[ch] = (peakLevels[ch] + level) / 2;      // Smooth fall
+        }
     }
 
 }
@@ -3624,8 +3642,9 @@ void setup() {
     prevLineValid = false;
     lastStatusDraw = 0;
 
-    // Build heat map palette
+    // Build heat map palette + display boost LUT
     initHeatPalette();
+    initDisplayLUT();
 
     // Reset state
     scanning = true;
