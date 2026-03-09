@@ -689,6 +689,7 @@ void handleWiFiSubmenuTouch() {
 
             feature_active = true;
             feature_exit_requested = false;
+            waitForTouchRelease();
 
             switch (current_submenu_index) {
                 case 0: // Packet Monitor
@@ -905,6 +906,7 @@ void handleBluetoothSubmenuTouch() {
 
             feature_active = true;
             feature_exit_requested = false;
+            waitForTouchRelease();
 
             switch (current_submenu_index) {
                 case 0: // BLE Jammer
@@ -965,8 +967,10 @@ void handleBluetoothSubmenuTouch() {
                     BleScan::setup();
                     while (!feature_exit_requested) {
                         BleScan::loop();
+                        if (BleScan::isExitRequested()) feature_exit_requested = true;
                         touchButtonsUpdate();
                         if (isBackButtonTapped()) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     BleScan::cleanup();
                     break;
@@ -1043,6 +1047,7 @@ void handleNRFSubmenuTouch() {
 
             feature_active = true;
             feature_exit_requested = false;
+            waitForTouchRelease();
 
             switch (current_submenu_index) {
                 case 0: // Scanner
@@ -1128,6 +1133,7 @@ void handleSubGHzSubmenuTouch() {
 
             feature_active = true;
             feature_exit_requested = false;
+            waitForTouchRelease();
 
             switch (current_submenu_index) {
                 case 0: // Replay Attack
@@ -1252,6 +1258,7 @@ void handleRFIDSubmenuTouch() {
 
             feature_active = true;
             feature_exit_requested = false;
+            waitForTouchRelease();
 
             switch (current_submenu_index) {
                 case 0: // Card Scanner
@@ -1366,6 +1373,7 @@ void handleJamDetectSubmenuTouch() {
 
             feature_active = true;
             feature_exit_requested = false;
+            waitForTouchRelease();
 
             switch (current_submenu_index) {
                 case 0: // WiFi Guardian
@@ -1449,6 +1457,7 @@ void handleSIGINTSubmenuTouch() {
 
             feature_active = true;
             feature_exit_requested = false;
+            waitForTouchRelease();
 
             switch (current_submenu_index) {
                 case 0: // EAPOL Capture
@@ -1535,6 +1544,7 @@ void handleToolsSubmenuTouch() {
             last_interaction_time = millis();
             displaySubmenu();
             delay(200);
+            waitForTouchRelease();
 
             if (current_submenu_index == 5) { // Back
                 returnToMainMenu();
@@ -2485,6 +2495,7 @@ void handleSettingsSubmenuTouch() {
 
             feature_active = true;
             feature_exit_requested = false;
+            waitForTouchRelease();
 
             switch (current_submenu_index) {
                 case 0: // Brightness

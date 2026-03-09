@@ -2654,8 +2654,9 @@ void loop() {
         touched = false;
     }
 
-    // Boot button = instant exit
-    if (digitalRead(0) == LOW) {
+    // Boot button = instant exit (IS_BOOT_PRESSED returns false on E32R28T
+    // where GPIO0 is permanently LOW due to CC1101 E07 PA module)
+    if (IS_BOOT_PRESSED()) {
         exitRequested = true;
         return;
     }

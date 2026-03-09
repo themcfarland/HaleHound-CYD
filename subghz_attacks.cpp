@@ -2638,8 +2638,8 @@ static void runSequentialBrute(const ProtocolDef& proto) {
                 paused = false;
                 delay(200);
             }
-            // Direct GPIO read for BOOT - always works
-            if (digitalRead(0) == LOW || isBackButtonTapped()) {
+            // BOOT button or back tap to stop
+            if (IS_BOOT_PRESSED() || isBackButtonTapped()) {
                 running = false;
                 break;
             }
@@ -2649,8 +2649,8 @@ static void runSequentialBrute(const ProtocolDef& proto) {
         transmitCode(currentCode, proto);
         currentCode++;
 
-        // HARD STOP - Direct GPIO0 read (BOOT button)
-        if (digitalRead(0) == LOW) {
+        // HARD STOP - BOOT button
+        if (IS_BOOT_PRESSED()) {
             running = false;
             break;
         }
@@ -2699,8 +2699,8 @@ static void runDeBruijnBrute(const ProtocolDef& proto) {
                 paused = false;
                 delay(200);
             }
-            // Direct GPIO read for BOOT - always works
-            if (digitalRead(0) == LOW || isBackButtonTapped()) {
+            // BOOT button or back tap to stop
+            if (IS_BOOT_PRESSED() || isBackButtonTapped()) {
                 running = false;
                 break;
             }
@@ -2716,8 +2716,8 @@ static void runDeBruijnBrute(const ProtocolDef& proto) {
         if (bitsCollected >= proto.bitLength) {
             transmitCode(currentWord, proto);
 
-            // HARD STOP - Direct GPIO0 read (BOOT button)
-            if (digitalRead(0) == LOW) {
+            // HARD STOP - BOOT button
+            if (IS_BOOT_PRESSED()) {
                 running = false;
                 break;
             }

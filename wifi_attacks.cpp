@@ -6746,10 +6746,11 @@ void loop() {
         prevClientCount = currentClients;
     }
 
-    // Check BOOT button (GPIO 0) for emergency exit
-    if (digitalRead(0) == LOW) {
+    // Check BOOT button for emergency exit (IS_BOOT_PRESSED returns false on
+    // E32R28T where GPIO0 is permanently LOW due to CC1101 E07 PA module)
+    if (IS_BOOT_PRESSED()) {
         delay(50);  // Debounce
-        if (digitalRead(0) == LOW) {
+        if (IS_BOOT_PRESSED()) {
             exitRequested = true;
             return;
         }

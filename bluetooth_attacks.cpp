@@ -2319,8 +2319,21 @@ static void drawDeviceList() {
         int idx = i + listStartIndex;
         BLEAdvertisedDevice device = scanResults.getDevice(idx);
 
-        String name = device.getName().length() > 0 ?
-                      String(device.getName().c_str()).substring(0, 16) : "Unknown";
+        String name;
+        if (device.getName().length() > 0) {
+            name = String(device.getName().c_str()).substring(0, 16);
+        } else if (device.haveManufacturerData()) {
+            std::string mfg = device.getManufacturerData();
+            if (mfg.length() >= 2) {
+                uint16_t cid = (uint8_t)mfg[0] | ((uint8_t)mfg[1] << 8);
+                const char* cn = lookupCompanyName(cid);
+                name = cn ? String("[") + cn + "]" : "Unknown";
+            } else {
+                name = "Unknown";
+            }
+        } else {
+            name = "Unknown";
+        }
 
         if (idx == currentIndex) {
             tft.fillRect(0, y - 2, SCREEN_WIDTH, DEVICE_LINE_HEIGHT, HALEHOUND_DARK);
@@ -2356,8 +2369,21 @@ static void drawDeviceDetails() {
 
     BLEAdvertisedDevice device = scanResults.getDevice(currentIndex);
 
-    String name = device.getName().length() > 0 ?
-                  String(device.getName().c_str()) : "Unknown Device";
+    String name;
+    if (device.getName().length() > 0) {
+        name = String(device.getName().c_str());
+    } else if (device.haveManufacturerData()) {
+        std::string mfg = device.getManufacturerData();
+        if (mfg.length() >= 2) {
+            uint16_t cid = (uint8_t)mfg[0] | ((uint8_t)mfg[1] << 8);
+            const char* cn = lookupCompanyName(cid);
+            name = cn ? String("[") + cn + " Device]" : "Unknown Device";
+        } else {
+            name = "Unknown Device";
+        }
+    } else {
+        name = "Unknown Device";
+    }
     String address = String(device.getAddress().toString().c_str());
     int rssi = device.getRSSI();
     int txPower = device.getTXPower();
@@ -2433,6 +2459,10 @@ void setup() {
     drawStatusBar();
     drawBleScanUI();
 
+    // Tear down WiFi before BLE init — frees ~50KB heap
+    WiFi.mode(WIFI_OFF);
+    delay(50);
+
     releaseClassicBtMemory();
     BLEDevice::init("");
     delay(150);  // BLE controller needs time after deinit/reinit cycle
@@ -2450,6 +2480,10 @@ void setup() {
     initialized = true;
 
     startScan();
+
+    // Consume any lingering touch from menu selection — prevents
+    // isBackButtonTapped() in .ino from immediately exiting
+    waitForTouchRelease();
 
     #if CYD_DEBUG
     Serial.println("[BLESCAN] Ready");
@@ -2472,6 +2506,7 @@ void loop() {
                     if (detailView) {
                         detailView = false;
                         drawDeviceList();
+                        waitForTouchRelease();  // Eat touch so .ino isBackButtonTapped() doesn't double-fire
                     } else {
                         exitRequested = true;
                     }
@@ -2492,6 +2527,7 @@ void loop() {
         if (detailView) {
             detailView = false;
             drawDeviceList();
+            waitForTouchRelease();  // Eat touch so .ino doesn't double-fire exit
         } else {
             exitRequested = true;
         }
@@ -2503,6 +2539,7 @@ void loop() {
         if (buttonPressed(BTN_LEFT)) {
             detailView = false;
             drawDeviceList();
+            waitForTouchRelease();
         }
     } else {
         // List view
@@ -2562,6 +2599,9 @@ void cleanup() {
     BLEDevice::deinit(false);  // false = keep BLE memory so reinit works
     initialized = false;
     exitRequested = false;
+
+    // Restore WiFi for other modules
+    WiFi.mode(WIFI_STA);
 
     #if CYD_DEBUG
     Serial.println("[BLESCAN] Cleanup complete");
@@ -4675,19 +4715,6 @@ static bool detailView = false;
 static BLEScan* pBleScan = nullptr;
 
 // ── Device storage ───────────────────────────────────────────────────────
-enum BleDevType : uint8_t {
-    DEV_UNKNOWN = 0,
-    DEV_APPLE,
-    DEV_GOOGLE,
-    DEV_SAMSUNG,
-    DEV_MICROSOFT,
-    DEV_FITBIT,
-    DEV_TILE,
-    DEV_AMAZON,
-    DEV_ESPRESSIF,
-    DEV_NAMED       // Has name but no recognized manufacturer
-};
-
 struct BleDevice {
     uint8_t  mac[6];
     int8_t   rssi;
@@ -4695,7 +4722,7 @@ struct BleDevice {
     int8_t   rssiMax;
     char     name[17];       // 16 chars + null
     char     vendor[8];      // 7 chars + null
-    BleDevType devType;
+    uint16_t companyId;      // BT SIG company ID from manufacturer data (0xFFFF = none)
     uint32_t firstSeen;
     uint32_t lastSeen;
     uint16_t frameCount;
@@ -4834,41 +4861,22 @@ static const char* lookupVendor(uint8_t* mac) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DEVICE TYPE DETECTION (from manufacturer data company ID)
+// DEVICE LABEL (from ble_database.h company ID lookup)
 // ═══════════════════════════════════════════════════════════════════════════
 
-static BleDevType parseDeviceType(uint8_t* mfgData, uint8_t len) {
-    if (len < 2) return DEV_UNKNOWN;
-
-    // Company ID is first 2 bytes, little-endian
-    uint16_t companyId = mfgData[0] | (mfgData[1] << 8);
-
-    switch (companyId) {
-        case 0x004C: return DEV_APPLE;
-        case 0x00E0: return DEV_GOOGLE;
-        case 0x0075: return DEV_SAMSUNG;
-        case 0x0006: return DEV_MICROSOFT;
-        case 0x0110: return DEV_FITBIT;
-        case 0x000D: return DEV_TILE;
-        case 0x0171: return DEV_AMAZON;
-        case 0x02E5: return DEV_ESPRESSIF;
-        default:     return DEV_UNKNOWN;
-    }
+// Extract company ID from manufacturer data (first 2 bytes, little-endian)
+static uint16_t extractCompanyId(uint8_t* mfgData, uint8_t len) {
+    if (len < 2) return 0xFFFF;
+    return mfgData[0] | (mfgData[1] << 8);
 }
 
-static const char* devTypeLabel(BleDevType t) {
-    switch (t) {
-        case DEV_APPLE:     return "Apple";
-        case DEV_GOOGLE:    return "Google";
-        case DEV_SAMSUNG:   return "Samsng";
-        case DEV_MICROSOFT: return "Msft";
-        case DEV_FITBIT:    return "Fitbit";
-        case DEV_TILE:      return "Tile";
-        case DEV_AMAZON:    return "Amazon";
-        case DEV_ESPRESSIF: return "ESP";
-        case DEV_NAMED:     return "Named";
-        default:            return "---";
+// Get display label for device — uses ble_database.h for 94 companies
+static const char* devDisplayLabel(uint16_t companyId, bool hasName) {
+    if (companyId != 0xFFFF) {
+        const char* name = lookupCompanyName(companyId);
+        if (name) return name;
     }
+    return hasName ? "Named" : "---";
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4904,8 +4912,8 @@ static void addOrUpdateDevice(uint8_t* mac, int8_t rssi, const char* name,
             uint8_t copyLen = mfgLen > 8 ? 8 : mfgLen;
             memcpy(d->mfgData, mfgData, copyLen);
             d->mfgDataLen = copyLen;
-            BleDevType t = parseDeviceType(mfgData, mfgLen);
-            if (t != DEV_UNKNOWN) d->devType = t;
+            uint16_t cid = extractCompanyId(mfgData, mfgLen);
+            if (cid != 0xFFFF) d->companyId = cid;
         }
         return;
     }
@@ -4939,15 +4947,10 @@ static void addOrUpdateDevice(uint8_t* mac, int8_t rssi, const char* name,
         uint8_t copyLen = mfgLen > 8 ? 8 : mfgLen;
         memcpy(d->mfgData, mfgData, copyLen);
         d->mfgDataLen = copyLen;
-        d->devType = parseDeviceType(mfgData, mfgLen);
+        d->companyId = extractCompanyId(mfgData, mfgLen);
     } else {
         d->mfgDataLen = 0;
-        d->devType = DEV_UNKNOWN;
-    }
-
-    // If has name but no manufacturer match, mark as NAMED
-    if (d->devType == DEV_UNKNOWN && d->hasName) {
-        d->devType = DEV_NAMED;
+        d->companyId = 0xFFFF;
     }
 
     deviceCount++;
@@ -4955,7 +4958,7 @@ static void addOrUpdateDevice(uint8_t* mac, int8_t rssi, const char* name,
     #if CYD_DEBUG
     Serial.printf("[BSNIFF] +DEV #%d %02X:%02X:%02X:%02X:%02X:%02X %ddBm %s %s\n",
                   deviceCount, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
-                  rssi, d->vendor, devTypeLabel(d->devType));
+                  rssi, d->vendor, devDisplayLabel(d->companyId, d->hasName));
     #endif
 }
 
@@ -4963,7 +4966,7 @@ static void addOrUpdateDevice(uint8_t* mac, int8_t rssi, const char* name,
 static bool passesFilter(BleDevice* d) {
     switch (currentFilter) {
         case FILT_NAMED:  return d->hasName;
-        case FILT_APPLE:  return d->devType == DEV_APPLE;
+        case FILT_APPLE:  return d->companyId == 0x004C;  // Apple BT SIG company ID
         case FILT_STRONG: return d->rssi > -60;
         default:          return true;
     }
@@ -5121,7 +5124,7 @@ static void drawDeviceList() {
             rowColor = TFT_WHITE;                  // Recent + named
         } else if (age < 5000) {
             rowColor = HALEHOUND_MAGENTA;             // Recent
-        } else if (d->devType != DEV_UNKNOWN && d->devType != DEV_NAMED) {
+        } else if (d->companyId != 0xFFFF && lookupCompanyName(d->companyId) != nullptr) {
             rowColor = HALEHOUND_VIOLET;           // Known manufacturer type
         } else if (age > 30000) {
             rowColor = HALEHOUND_GUNMETAL;         // Stale
@@ -5148,9 +5151,9 @@ static void drawDeviceList() {
         tft.setCursor(80, y + 4);
         tft.printf("%d", d->rssi);
 
-        // Type
+        // Type (company name from ble_database.h)
         tft.setCursor(115, y + 4);
-        tft.print(devTypeLabel(d->devType));
+        tft.print(devDisplayLabel(d->companyId, d->hasName));
 
         // Vendor
         tft.setCursor(170, y + 4);
@@ -5316,7 +5319,7 @@ static void showDeviceDetail(int idx) {
     tft.setCursor(18, y);
     tft.print("Type: ");
     tft.setTextColor(HALEHOUND_BRIGHT);
-    tft.print(devTypeLabel(d->devType));
+    tft.print(devDisplayLabel(d->companyId, d->hasName));
     y += 16;
 
     // Vendor
