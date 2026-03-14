@@ -5522,12 +5522,15 @@ static void bjJamTask(void* param) {
     }
 
     // Cleanup on THIS core — core 1 must NOT touch radio while task is alive
+    // Full chip reinit required: startConstCarrier() calls disableCRC() which
+    // trashes CONFIG register. stopConstCarrier() never re-enables CRC.
+    // begin() reinitializes ALL registers to known defaults.
     nrf24Radio.stopConstCarrier();
-    nrf24Radio.flush_tx();
+    nrf24Radio.begin();
     nrf24Radio.powerDown();
     SPI.end();
 
-    Serial.println("[BLEJAM] Core 0: Radio powered down, SPI released");
+    Serial.println("[BLEJAM] Core 0: Radio fully reset + powered down, SPI released");
     bjJamTaskDone = true;
     vTaskDelete(NULL);
 }

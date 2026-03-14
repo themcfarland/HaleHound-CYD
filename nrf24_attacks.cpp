@@ -1398,13 +1398,17 @@ static void wlanJamTask(void* param) {
         }
     }
 
-    // Cleanup on core 0
+    // Cleanup on core 0 — full chip reinit required!
+    // startConstCarrier() calls disableCRC(), setAutoAck(0), setRetries(0,0),
+    // reUseTX(), and sets CONT_WAVE/PLL_LOCK test mode bits.
+    // stopConstCarrier() only partially cleans up (never re-enables CRC).
+    // begin() reinitializes ALL registers to known defaults.
     nrf24Radio.stopConstCarrier();
-    nrf24Radio.flush_tx();
+    nrf24Radio.begin();       // Full chip reinit — restores CRC, auto-ack, all registers
     nrf24Radio.powerDown();
     SPI.end();
 
-    Serial.println("[WLANJAMMER] Core 0: Radio powered down, SPI released");
+    Serial.println("[WLANJAMMER] Core 0: Radio fully reset + powered down, SPI released");
     wlanJamTaskDone = true;
     vTaskDelete(NULL);
 }
@@ -2028,13 +2032,13 @@ static void pkJamTask(void* param) {
         }
     }
 
-    // Cleanup on core 0
+    // Cleanup on core 0 — full chip reinit required (same as WLAN Jammer)
     nrf24Radio.stopConstCarrier();
-    nrf24Radio.flush_tx();
+    nrf24Radio.begin();       // Full chip reinit — restores CRC, auto-ack, all registers
     nrf24Radio.powerDown();
     SPI.end();
 
-    Serial.println("[PROTOKILL] Core 0: Radio powered down, SPI released");
+    Serial.println("[PROTOKILL] Core 0: Radio fully reset + powered down, SPI released");
     pkJamTaskDone = true;
     vTaskDelete(NULL);
 }
