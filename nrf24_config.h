@@ -78,8 +78,11 @@ uint8_t nrf24GetBusiestChannel();
 // Mouse jacker target address (5 bytes)
 extern uint8_t mouseJackerTarget[5];
 
-// Scan for wireless mice/keyboards
-bool nrf24ScanForDevices();
+// Mouse jacker target channel (from Sniffer or built-in scan)
+extern uint8_t mouseJackerChannel;
+
+// Mouse jacker device type (0xC1=keyboard, 0xC2=mouse, 0x0F=HID — from Sniffer handoff)
+extern uint8_t mouseJackerDeviceType;
 
 // Send mouse movement injection
 bool nrf24InjectMouseMove(int8_t x, int8_t y);

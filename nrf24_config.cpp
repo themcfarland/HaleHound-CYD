@@ -15,6 +15,8 @@
 RF24 nrf24Radio(NRF24_CE, NRF24_CSN, 4000000);  // 4MHz SPI — ESP32+PA/LNA needs ≤4MHz (RF24 #992)
 NRF24Mode currentNRF24Mode = NRF24_MODE_OFF;
 uint8_t mouseJackerTarget[5] = {0, 0, 0, 0, 0};
+uint8_t mouseJackerChannel = 0;
+uint8_t mouseJackerDeviceType = 0;
 
 static bool nrf24Active = false;
 static bool spiClaimed = false;
@@ -194,66 +196,6 @@ uint8_t nrf24GetBusiestChannel() {
 // ═══════════════════════════════════════════════════════════════════════════
 // MOUSE JACKER
 // ═══════════════════════════════════════════════════════════════════════════
-
-// Common wireless mouse addresses to scan
-static const uint8_t commonAddresses[][5] = {
-    {0xAA, 0xAA, 0xAA, 0xAA, 0xAA},
-    {0x55, 0x55, 0x55, 0x55, 0x55},
-    {0x00, 0x00, 0x00, 0x00, 0x00},
-    {0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
-};
-
-bool nrf24ScanForDevices() {
-    if (!nrf24Active) {
-        nrf24Setup();
-    }
-
-    currentNRF24Mode = NRF24_MODE_MOUSEJACKER;
-
-    #if CYD_DEBUG
-    Serial.println("[NRF24] Scanning for wireless devices...");
-    #endif
-
-    nrf24Radio.setAutoAck(false);
-    nrf24Radio.setPayloadSize(32);
-    nrf24Radio.setDataRate(RF24_2MBPS);
-
-    // Scan common channels for Logitech devices
-    uint8_t logitechChannels[] = {2, 5, 8, 17, 23, 26, 29, 32, 35, 38, 41, 44, 47, 50, 53, 56, 59, 62, 65, 68, 71, 74, 77, 80};
-
-    for (int i = 0; i < sizeof(logitechChannels); i++) {
-        nrf24Radio.setChannel(logitechChannels[i]);
-
-        // Try common addresses
-        for (int j = 0; j < 4; j++) {
-            nrf24Radio.openReadingPipe(0, commonAddresses[j]);
-            nrf24Radio.startListening();
-
-            delay(10);
-
-            if (nrf24Radio.available()) {
-                // Found something!
-                memcpy(mouseJackerTarget, commonAddresses[j], 5);
-
-                #if CYD_DEBUG
-                Serial.print("[NRF24] Found device on channel ");
-                Serial.println(logitechChannels[i]);
-                #endif
-
-                nrf24Radio.stopListening();
-                return true;
-            }
-
-            nrf24Radio.stopListening();
-        }
-    }
-
-    #if CYD_DEBUG
-    Serial.println("[NRF24] No devices found");
-    #endif
-
-    return false;
-}
 
 bool nrf24InjectMouseMove(int8_t x, int8_t y) {
     if (!nrf24Active || currentNRF24Mode != NRF24_MODE_MOUSEJACKER) {

