@@ -49,17 +49,17 @@ static int gpsActiveBaud = 9600;        // Which baud rate worked
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void drawGPSIconBar() {
-    tft.drawLine(0, 19, SCREEN_WIDTH, 19, HALEHOUND_MAGENTA);
-    tft.fillRect(0, 20, SCREEN_WIDTH, 16, HALEHOUND_DARK);
-    tft.drawBitmap(10, 20, bitmap_icon_go_back, 16, 16, HALEHOUND_MAGENTA);
-    tft.drawLine(0, 36, SCREEN_WIDTH, 36, HALEHOUND_HOTPINK);
+    tft.drawLine(0, ICON_BAR_Y - 1, SCREEN_WIDTH, ICON_BAR_Y - 1, HALEHOUND_MAGENTA);
+    tft.fillRect(0, ICON_BAR_Y, SCREEN_WIDTH, ICON_BAR_H, HALEHOUND_DARK);
+    tft.drawBitmap(10, ICON_BAR_Y, bitmap_icon_go_back, 16, 16, HALEHOUND_MAGENTA);
+    tft.drawLine(0, ICON_BAR_BOTTOM, SCREEN_WIDTH, ICON_BAR_BOTTOM, HALEHOUND_HOTPINK);
 }
 
-// Check if back icon tapped (y=20-36, x=10-26) - MATCHES isInoBackTapped()
+// Check if back icon tapped - uses icon bar defines from cyd_config.h
 static bool isGPSBackTapped() {
     uint16_t tx, ty;
     if (getTouchPoint(&tx, &ty)) {
-        if (ty >= 20 && ty <= 36 && tx >= 10 && tx < 30) {
+        if (ty >= ICON_BAR_TOUCH_TOP && ty <= ICON_BAR_TOUCH_BOTTOM && tx >= 10 && tx < 30) {
             delay(150);
             return true;
         }
@@ -90,9 +90,9 @@ static const char* compassDirection(float heading) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void drawCrosshairs() {
-    const int x1 = 10, y1 = 66;      // top-left interior
-    const int x2 = 230, y2 = 110;    // bottom-right interior
-    const int len = 15;               // bracket arm length
+    const int x1 = SCALE_X(10), y1 = SCALE_Y(66);      // top-left interior
+    const int x2 = SCALE_X(230), y2 = SCALE_Y(110);     // bottom-right interior
+    const int len = SCALE_X(15);                          // bracket arm length
     uint16_t color = HALEHOUND_GUNMETAL;
 
     // Top-left bracket
@@ -112,7 +112,7 @@ static void drawCrosshairs() {
     tft.drawLine(x2, y2, x2, y2 - len, color);
 
     // Center cross (small)
-    int cx = 120, cy = 88;
+    int cx = SCREEN_WIDTH / 2, cy = SCALE_Y(88);
     tft.drawLine(cx - 4, cy, cx + 4, cy, color);
     tft.drawLine(cx, cy - 4, cx, cy + 4, color);
 }
@@ -125,12 +125,12 @@ static void drawCrosshairs() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void drawCompass(float heading, bool valid) {
-    const int cx = 40;
-    const int cy = 146;
-    const int r = 22;
+    const int cx = SCALE_X(40);
+    const int cy = SCALE_Y(146);
+    const int r = SCALE_X(22);
 
     // Clear compass area
-    tft.fillRect(4, 118, 74, 64, TFT_BLACK);
+    tft.fillRect(SCALE_X(4), SCALE_Y(118), SCALE_W(74), SCALE_H(64), TFT_BLACK);
 
     uint16_t rimColor = valid ? HALEHOUND_VIOLET : HALEHOUND_GUNMETAL;
     uint16_t needleColor = valid ? HALEHOUND_MAGENTA : HALEHOUND_GUNMETAL;
@@ -140,11 +140,9 @@ static void drawCompass(float heading, bool valid) {
     tft.drawCircle(cx, cy, r + 1, HALEHOUND_GUNMETAL);
 
     // 8 tick marks at compass points (N=0, NE=45, E=90, etc.)
-    // Uses heading convention: 0=N(up), clockwise
-    // Screen: x += sin(angle), y -= cos(angle)
     for (int i = 0; i < 8; i++) {
         float a = i * 45.0f * DEG_TO_RAD;
-        int tickLen = (i % 2 == 0) ? 5 : 3;  // cardinal=longer, intercardinal=shorter
+        int tickLen = (i % 2 == 0) ? SCALE_X(5) : SCALE_X(3);
         uint16_t tickColor = (i == 0) ? HALEHOUND_HOTPINK : HALEHOUND_GUNMETAL;
 
         int ox = cx + (int)(sin(a) * (float)r);
@@ -163,8 +161,8 @@ static void drawCompass(float heading, bool valid) {
 
     // Heading needle (thick — 3 parallel lines)
     float rad = heading * DEG_TO_RAD;
-    int tipX = cx + (int)(sin(rad) * (float)(r - 5));
-    int tipY = cy - (int)(cos(rad) * (float)(r - 5));
+    int tipX = cx + (int)(sin(rad) * (float)(r - SCALE_X(5)));
+    int tipY = cy - (int)(cos(rad) * (float)(r - SCALE_X(5)));
 
     tft.drawLine(cx, cy, tipX, tipY, needleColor);
     tft.drawLine(cx + 1, cy, tipX + 1, tipY, needleColor);
@@ -189,7 +187,7 @@ static void drawCompass(float heading, bool valid) {
     tft.setTextColor(valid ? HALEHOUND_MAGENTA : HALEHOUND_GUNMETAL);
     tft.setTextSize(1);
     int tw = strlen(buf) * 6;
-    tft.setCursor(cx - tw / 2, 176);
+    tft.setCursor(cx - tw / 2, SCALE_Y(176));
     tft.print(buf);
 }
 
@@ -202,15 +200,15 @@ static void drawCompass(float heading, bool valid) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void drawSpeedArc(float speed, bool valid) {
-    const int cx = 120;
-    const int cy = 152;
-    const int outerR = 22;
-    const int innerR = 16;
+    const int cx = SCREEN_WIDTH / 2;
+    const int cy = SCALE_Y(152);
+    const int outerR = SCALE_X(22);
+    const int innerR = SCALE_X(16);
     const float maxSpeed = 120.0f;
     const int totalSweep = 270;
 
     // Clear speed area
-    tft.fillRect(82, 118, 76, 64, TFT_BLACK);
+    tft.fillRect(SCALE_X(82), SCALE_Y(118), SCALE_W(76), SCALE_H(64), TFT_BLACK);
 
     int fillSteps = 0;
     if (valid && speed > 0.5f) {
@@ -219,8 +217,6 @@ static void drawSpeedArc(float speed, bool valid) {
     }
 
     // Draw arc: sweep 270 degrees
-    // Step 0 = 225° math (lower-left), step 270 = -45° math (lower-right)
-    // Goes counterclockwise through top (standard speedometer sweep)
     for (int step = 0; step <= totalSweep; step += 3) {
         float angleDeg = 225.0f - (float)step;
         float rad = angleDeg * DEG_TO_RAD;
@@ -232,13 +228,12 @@ static void drawSpeedArc(float speed, bool valid) {
 
         uint16_t color;
         if (step <= fillSteps && valid) {
-            // Color gradient based on position in arc
             float frac = (float)step / (float)totalSweep;
             if (frac < 0.5f)       color = HALEHOUND_MAGENTA;
             else if (frac < 0.75f) color = HALEHOUND_HOTPINK;
-            else                   color = 0xF800;  // Red at high speed
+            else                   color = 0xF800;
         } else {
-            color = HALEHOUND_DARK;  // Unfilled background
+            color = HALEHOUND_DARK;
         }
 
         tft.drawLine(ix, iy, ox, oy, color);
@@ -260,7 +255,7 @@ static void drawSpeedArc(float speed, bool valid) {
 
     // "km/h" label below arc
     tft.setTextColor(HALEHOUND_GUNMETAL);
-    tft.setCursor(cx - 12, 176);
+    tft.setCursor(cx - 12, SCALE_Y(176));
     tft.print("km/h");
 }
 
@@ -290,14 +285,13 @@ static uint16_t lerpColor565(uint16_t c1, uint16_t c2, float t) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void drawSatBars(int satellites) {
-    const int barW = 10;
-    const int gap = 3;
-    const int startX = 168;
-    const int bottomY = 168;
-    const int barHeights[] = {8, 14, 20, 26, 32};
+    const int barW = SCALE_X(10);
+    const int gap = SCALE_X(3);
+    const int startX = SCALE_X(168);
+    const int bottomY = SCALE_Y(168);
+    const int barHeights[] = {SCALE_H(8), SCALE_H(14), SCALE_H(20), SCALE_H(26), SCALE_H(32)};
     const int thresholds[] = {1, 3, 5, 7, 9};
 
-    // HaleHound gradient target — each bar fades from DARK to this color
     uint16_t barColors[] = {
         HALEHOUND_VIOLET,
         HALEHOUND_VIOLET,
@@ -307,12 +301,12 @@ static void drawSatBars(int satellites) {
     };
 
     // Clear satellite area
-    tft.fillRect(162, 118, 74, 64, TFT_BLACK);
+    tft.fillRect(SCALE_X(162), SCALE_Y(118), SCALE_W(74), SCALE_H(64), TFT_BLACK);
 
     // "SAT" label at top
     tft.setTextSize(1);
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(188, 120);
+    tft.setCursor(SCALE_X(188), SCALE_Y(120));
     tft.print("SAT");
 
     for (int i = 0; i < 5; i++) {
@@ -321,9 +315,7 @@ static void drawSatBars(int satellites) {
         int y = bottomY - h;
 
         if (satellites >= thresholds[i]) {
-            // Gradient fill: dark at bottom, bright at top
             for (int row = 0; row < h; row++) {
-                // row 0 = top (bright), row h-1 = bottom (dark)
                 float t = 1.0f - (float)row / (float)(h > 1 ? h - 1 : 1);
                 uint16_t color = lerpColor565(HALEHOUND_DARK, barColors[i], t);
                 tft.fillRect(x, y + row, barW, 1, color);
@@ -338,7 +330,7 @@ static void drawSatBars(int satellites) {
     snprintf(buf, sizeof(buf), "%d", satellites);
     int tw = strlen(buf) * 6;
     tft.setTextColor(satellites > 0 ? HALEHOUND_MAGENTA : HALEHOUND_GUNMETAL);
-    tft.setCursor(startX + 25 - tw / 2, 176);
+    tft.setCursor(startX + SCALE_X(25) - tw / 2, SCALE_Y(176));
     tft.print(buf);
 }
 
@@ -354,23 +346,20 @@ static void drawSatBars(int satellites) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void drawSkullIndicator(bool hasFix, bool hasData) {
-    const int sx = 214;     // Right side of status box (skull top-left x)
-    const int sy = 226;     // Skull top-left y (centered in 28px box)
+    const int sx = SCREEN_WIDTH - SCALE_X(26);   // Right side of status box
+    const int sy = SCALE_Y(226);                   // Skull top-left y
 
     // Clear skull area (use HALEHOUND_DARK to match status box interior)
     tft.fillRect(sx - 1, sy - 1, 18, 18, HALEHOUND_DARK);
 
     if (!hasData) {
-        // Dim ghost skull — no GPS data at all
         tft.drawBitmap(sx, sy, bitmap_icon_skull_tools, 16, 16, HALEHOUND_GUNMETAL);
         return;
     }
 
     if (hasFix) {
-        // Solid skull — LOCKED ON (steady, confident, no blinking)
         tft.drawBitmap(sx, sy, bitmap_icon_skull_tools, 16, 16, HALEHOUND_MAGENTA);
     } else {
-        // Pulsing skull — searching (breathes between HOTPINK and DARK)
         bool pulseOn = (millis() / 300) % 2;
         uint16_t skullColor = pulseOn ? HALEHOUND_HOTPINK : HALEHOUND_DARK;
         tft.drawBitmap(sx, sy, bitmap_icon_skull_tools, 16, 16, skullColor);
@@ -379,18 +368,7 @@ static void drawSkullIndicator(bool hasFix, bool hasData) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GPS SCREEN — TACTICAL INSTRUMENT LAYOUT
-//
-// y=0-19:    Status bar
-// y=20-36:   Icon bar (DARK bg, back icon)
-// y=38-58:   Glitch title "GPS TRACKER"
-// y=62-114:  Coordinate frame with TACTICAL CROSSHAIRS
-// y=118-182: INSTRUMENT PANEL (compass | speed arc | sat bars)
-// y=186-196: ALT + HDOP info row
-// y=198:     Separator
-// y=202-212: Date + Time
-// y=214:     Separator
-// y=218-246: Status box + PULSING FIX DOT
-// y=250-278: Diagnostics (NMEA / PIN / AGE)
+// All coordinates use SCALE_X/Y macros for 2.8" (240×320) and 3.5" (320×480)
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void drawGPSScreen() {
@@ -399,46 +377,45 @@ static void drawGPSScreen() {
     drawGPSIconBar();
 
     // Glitch title — chromatic aberration effect
-    drawGlitchText(55, "GPS TRACKER", &Nosifer_Regular10pt7b);
-    tft.drawLine(0, 58, SCREEN_WIDTH, 58, HALEHOUND_HOTPINK);
+    drawGlitchText(SCALE_Y(55), "GPS TRACKER", &Nosifer_Regular10pt7b);
+    tft.drawLine(0, SCALE_Y(58), SCREEN_WIDTH, SCALE_Y(58), HALEHOUND_HOTPINK);
 
     // Coordinate frame (double border)
-    tft.drawRoundRect(5, 62, 230, 52, 6, HALEHOUND_VIOLET);
-    tft.drawRoundRect(6, 63, 228, 50, 5, HALEHOUND_GUNMETAL);
+    int frmW = SCREEN_WIDTH - SCALE_X(10);
+    tft.drawRoundRect(SCALE_X(5), SCALE_Y(62), frmW, SCALE_H(52), 6, HALEHOUND_VIOLET);
+    tft.drawRoundRect(SCALE_X(5) + 1, SCALE_Y(62) + 1, frmW - 2, SCALE_H(52) - 2, 5, HALEHOUND_GUNMETAL);
 
-    // Instrument panel area: drawn dynamically in updateGPSValues()
-
-    // ALT + HDOP labels
+    // ALT + ACC labels
     tft.setTextSize(1);
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(8, 188);
+    tft.setCursor(SCALE_X(8), SCALE_Y(188));
     tft.print("ALT");
-    tft.setCursor(130, 188);
+    tft.setCursor(SCALE_X(130), SCALE_Y(188));
     tft.print("ACC");
 
     // Separator
-    tft.drawLine(5, 200, 235, 200, HALEHOUND_HOTPINK);
+    tft.drawLine(SCALE_X(5), SCALE_Y(200), SCREEN_WIDTH - SCALE_X(5), SCALE_Y(200), HALEHOUND_HOTPINK);
 
     // Date/Time labels
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(8, 204);
+    tft.setCursor(SCALE_X(8), SCALE_Y(204));
     tft.print("DATE");
-    tft.setCursor(130, 204);
+    tft.setCursor(SCALE_X(130), SCALE_Y(204));
     tft.print("TIME");
 
     // Separator
-    tft.drawLine(5, 216, 235, 216, HALEHOUND_HOTPINK);
+    tft.drawLine(SCALE_X(5), SCALE_Y(216), SCREEN_WIDTH - SCALE_X(5), SCALE_Y(216), HALEHOUND_HOTPINK);
 
     // Status box frame
-    tft.drawRoundRect(5, 220, 230, 28, 4, HALEHOUND_VIOLET);
+    tft.drawRoundRect(SCALE_X(5), SCALE_Y(220), SCREEN_WIDTH - SCALE_X(10), SCALE_H(28), 4, HALEHOUND_VIOLET);
 
     // Diagnostic section labels
     tft.setTextColor(HALEHOUND_GUNMETAL);
-    tft.setCursor(8, 254);
+    tft.setCursor(SCALE_X(8), SCALE_Y(254));
     tft.print("NMEA");
-    tft.setCursor(8, 266);
+    tft.setCursor(SCALE_X(8), SCALE_Y(266));
     tft.print("PIN");
-    tft.setCursor(8, 278);
+    tft.setCursor(SCALE_X(8), SCALE_Y(278));
     tft.print("AGE");
 }
 
@@ -453,31 +430,28 @@ static void updateGPSValues() {
     char buf[48];
 
     // ── Coordinate frame (clear interior, draw crosshairs, then values) ──
-    tft.fillRect(8, 65, 224, 46, TFT_BLACK);
+    tft.fillRect(SCALE_X(8), SCALE_Y(65), SCALE_W(224), SCALE_H(46), TFT_BLACK);
     drawCrosshairs();
 
     if (currentData.valid) {
-        // Latitude — FreeFont inside frame
         snprintf(buf, sizeof(buf), "%.6f %c",
                  fabs(currentData.latitude),
                  currentData.latitude >= 0 ? 'N' : 'S');
         tft.setFreeFont(&FreeMono9pt7b);
         tft.setTextColor(HALEHOUND_MAGENTA);
-        tft.setCursor(12, 84);
+        tft.setCursor(SCALE_X(12), SCALE_Y(84));
         tft.print(buf);
 
-        // Longitude — FreeFont inside frame
         snprintf(buf, sizeof(buf), "%.6f %c",
                  fabs(currentData.longitude),
                  currentData.longitude >= 0 ? 'E' : 'W');
-        tft.setCursor(12, 104);
+        tft.setCursor(SCALE_X(12), SCALE_Y(104));
         tft.print(buf);
         tft.setFreeFont(NULL);
     } else {
-        // No fix — centered waiting text
         tft.setFreeFont(&FreeMono9pt7b);
         tft.setTextColor(HALEHOUND_GUNMETAL);
-        tft.setCursor(28, 92);
+        tft.setCursor(SCALE_X(28), SCALE_Y(92));
         tft.print("-- waiting --");
         tft.setFreeFont(NULL);
     }
@@ -490,10 +464,9 @@ static void updateGPSValues() {
     // ── ALT + HDOP values ──
     tft.setTextSize(1);
 
-    // ALT value
-    tft.fillRect(30, 188, 90, 10, TFT_BLACK);
+    tft.fillRect(SCALE_X(30), SCALE_Y(188), SCALE_W(90), SCALE_H(10), TFT_BLACK);
     tft.setTextColor(currentData.valid ? HALEHOUND_MAGENTA : HALEHOUND_GUNMETAL);
-    tft.setCursor(30, 188);
+    tft.setCursor(SCALE_X(30), SCALE_Y(188));
     if (currentData.valid) {
         snprintf(buf, sizeof(buf), "%.1fm", currentData.altitude);
         tft.print(buf);
@@ -501,116 +474,107 @@ static void updateGPSValues() {
         tft.print("---");
     }
 
-    // Accuracy in feet (HDOP × 2.5m × 3.28084 ft/m)
-    tft.fillRect(152, 188, 83, 10, TFT_BLACK);
+    tft.fillRect(SCALE_X(152), SCALE_Y(188), SCALE_W(83), SCALE_H(10), TFT_BLACK);
     if (currentData.hdop > 0.01 && currentData.valid) {
         float accFeet = currentData.hdop * 2.5f * 3.28084f;
         uint16_t accColor;
-        if (accFeet < 16.0f)       accColor = HALEHOUND_BRIGHT;    // Tight — excellent
-        else if (accFeet < 33.0f)  accColor = HALEHOUND_HOTPINK;   // Decent
-        else                       accColor = 0xF800;              // Red — poor
+        if (accFeet < 16.0f)       accColor = HALEHOUND_BRIGHT;
+        else if (accFeet < 33.0f)  accColor = HALEHOUND_HOTPINK;
+        else                       accColor = 0xF800;
         tft.setTextColor(accColor);
         if (accFeet < 100.0f)
             snprintf(buf, sizeof(buf), "~%.0fft", accFeet);
         else
             snprintf(buf, sizeof(buf), ">100ft");
-        tft.setCursor(152, 188);
+        tft.setCursor(SCALE_X(152), SCALE_Y(188));
         tft.print(buf);
     } else {
         tft.setTextColor(HALEHOUND_GUNMETAL);
-        tft.setCursor(152, 188);
+        tft.setCursor(SCALE_X(152), SCALE_Y(188));
         tft.print("---");
     }
 
     // ── Date / Time ──
-    tft.fillRect(34, 204, 90, 10, TFT_BLACK);
-    tft.fillRect(160, 204, 75, 10, TFT_BLACK);
+    tft.fillRect(SCALE_X(34), SCALE_Y(204), SCALE_W(90), SCALE_H(10), TFT_BLACK);
+    tft.fillRect(SCALE_X(160), SCALE_Y(204), SCALE_W(75), SCALE_H(10), TFT_BLACK);
 
     if (currentData.valid && currentData.year > 2000) {
         tft.setTextColor(HALEHOUND_MAGENTA);
         snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
                  currentData.year, currentData.month, currentData.day);
-        tft.setCursor(34, 204);
+        tft.setCursor(SCALE_X(34), SCALE_Y(204));
         tft.print(buf);
 
         snprintf(buf, sizeof(buf), "%02d:%02d:%02d",
                  currentData.hour, currentData.minute, currentData.second);
-        tft.setCursor(160, 204);
+        tft.setCursor(SCALE_X(160), SCALE_Y(204));
         tft.print(buf);
     } else {
         tft.setTextColor(HALEHOUND_GUNMETAL);
-        tft.setCursor(34, 204);
+        tft.setCursor(SCALE_X(34), SCALE_Y(204));
         tft.print("----/--/--");
-        tft.setCursor(160, 204);
+        tft.setCursor(SCALE_X(160), SCALE_Y(204));
         tft.print("--:--:--");
     }
 
     // ── Status box (color-coded) ──
     uint32_t chars = gps.charsProcessed();
 
-    tft.fillRoundRect(6, 221, 228, 26, 3, HALEHOUND_DARK);
+    tft.fillRoundRect(SCALE_X(6), SCALE_Y(221), SCREEN_WIDTH - SCALE_X(12), SCALE_H(26), 3, HALEHOUND_DARK);
     tft.setTextSize(1);
 
     if (chars == 0) {
-        // RED — no data from GPS module at all
-        drawCenteredText(230, "NO DATA - Check wiring", 0xF800, 1);
+        drawCenteredText(SCALE_Y(230), "NO DATA - Check wiring", 0xF800, 1);
     } else if (!currentData.valid) {
         if (currentData.satellites > 0) {
-            // HOTPINK — seeing satellites but no fix yet
             snprintf(buf, sizeof(buf), "SEARCHING  %d sats", currentData.satellites);
-            drawCenteredText(230, buf, HALEHOUND_HOTPINK, 1);
+            drawCenteredText(SCALE_Y(230), buf, HALEHOUND_HOTPINK, 1);
         } else {
-            // VIOLET — getting NMEA but no satellites
-            drawCenteredText(230, "NO FIX - Need sky view", HALEHOUND_VIOLET, 1);
+            drawCenteredText(SCALE_Y(230), "NO FIX - Need sky view", HALEHOUND_VIOLET, 1);
         }
     } else {
         if (currentData.satellites >= 4) {
-            // GREEN — full 3D fix
             snprintf(buf, sizeof(buf), "3D FIX  %d sats  LOCKED", currentData.satellites);
-            drawCenteredText(230, buf, 0x07E0, 1);
+            drawCenteredText(SCALE_Y(230), buf, 0x07E0, 1);
         } else {
-            // BRIGHT — 2D fix (no altitude)
             snprintf(buf, sizeof(buf), "2D FIX  %d sats", currentData.satellites);
-            drawCenteredText(230, buf, HALEHOUND_BRIGHT, 1);
+            drawCenteredText(SCALE_Y(230), buf, HALEHOUND_BRIGHT, 1);
         }
     }
 
-    // ── Pulsing fix dot (inside status box, right side) ──
+    // ── Pulsing fix skull (inside status box, right side) ──
     bool hasData = (chars > 0);
     drawSkullIndicator(currentData.valid, hasData);
 
-    // ── Diagnostics (NMEA y=254, PIN y=266, AGE y=278) ──
-    tft.fillRect(35, 254, 200, 10, TFT_BLACK);
-    tft.fillRect(30, 266, 200, 10, TFT_BLACK);
-    tft.fillRect(30, 278, 200, 10, TFT_BLACK);
+    // ── Diagnostics ──
+    tft.fillRect(SCALE_X(35), SCALE_Y(254), SCALE_W(200), SCALE_H(10), TFT_BLACK);
+    tft.fillRect(SCALE_X(30), SCALE_Y(266), SCALE_W(200), SCALE_H(10), TFT_BLACK);
+    tft.fillRect(SCALE_X(30), SCALE_Y(278), SCALE_W(200), SCALE_H(10), TFT_BLACK);
 
     tft.setTextColor(HALEHOUND_GUNMETAL);
     tft.setTextSize(1);
 
-    // NMEA stats
     snprintf(buf, sizeof(buf), "%lu chars  %lu ok  %lu fail",
              (unsigned long)gps.charsProcessed(),
              (unsigned long)gps.sentencesWithFix(),
              (unsigned long)gps.failedChecksum());
-    tft.setCursor(35, 254);
+    tft.setCursor(SCALE_X(35), SCALE_Y(254));
     tft.print(buf);
 
-    // Active pin/baud
     if (gpsActivePin >= 0) {
         snprintf(buf, sizeof(buf), "GPIO%d @ %d", gpsActivePin, gpsActiveBaud);
     } else {
         snprintf(buf, sizeof(buf), "---");
     }
-    tft.setCursor(30, 266);
+    tft.setCursor(SCALE_X(30), SCALE_Y(266));
     tft.print(buf);
 
-    // Fix age
     if (currentData.valid) {
         snprintf(buf, sizeof(buf), "%lums", (unsigned long)currentData.age);
     } else {
         snprintf(buf, sizeof(buf), "---");
     }
-    tft.setCursor(30, 278);
+    tft.setCursor(SCALE_X(30), SCALE_Y(278));
     tft.print(buf);
 }
 
@@ -649,11 +613,11 @@ void gpsSetup() {
 
     // ── Auto-scan: try multiple pins and baud rates ──
     // Show scanning screen
-    tft.fillRect(0, 60, SCREEN_WIDTH, 200, TFT_BLACK);
-    drawGlitchText(55, "GPS TRACKER", &Nosifer_Regular10pt7b);
-    tft.drawLine(0, 58, SCREEN_WIDTH, 58, HALEHOUND_HOTPINK);
+    tft.fillRect(0, SCALE_Y(60), SCREEN_WIDTH, SCALE_H(200), TFT_BLACK);
+    drawGlitchText(SCALE_Y(55), "GPS TRACKER", &Nosifer_Regular10pt7b);
+    tft.drawLine(0, SCALE_Y(58), SCREEN_WIDTH, SCALE_Y(58), HALEHOUND_HOTPINK);
 
-    drawCenteredText(80, "SCANNING GPS...", HALEHOUND_HOTPINK, 2);
+    drawCenteredText(SCALE_Y(80), "SCANNING GPS...", HALEHOUND_HOTPINK, 2);
 
     // Pin/baud combos to try — GPIO3 (P1 connector) first
     struct ScanEntry { int pin; int baud; const char* label; };
@@ -671,23 +635,23 @@ void gpsSetup() {
 
     for (int i = 0; i < numScans; i++) {
         // Show current attempt
-        tft.fillRect(0, 110, SCREEN_WIDTH, 60, TFT_BLACK);
+        tft.fillRect(0, SCALE_Y(110), SCREEN_WIDTH, SCALE_H(60), TFT_BLACK);
         tft.setTextSize(1);
         tft.setTextColor(HALEHOUND_MAGENTA);
-        tft.setCursor(10, 115);
+        tft.setCursor(SCALE_X(10), SCALE_Y(115));
         tft.printf("Try %d/%d: %s", i + 1, numScans, scans[i].label);
 
         // Progress bar
-        int barW = (SCREEN_WIDTH - 20) * (i + 1) / numScans;
-        tft.fillRect(10, 135, SCREEN_WIDTH - 20, 8, HALEHOUND_DARK);
-        tft.fillRect(10, 135, barW, 8, HALEHOUND_HOTPINK);
+        int barW = (SCREEN_WIDTH - SCALE_X(20)) * (i + 1) / numScans;
+        tft.fillRect(SCALE_X(10), SCALE_Y(135), SCREEN_WIDTH - SCALE_X(20), SCALE_H(8), HALEHOUND_DARK);
+        tft.fillRect(SCALE_X(10), SCALE_Y(135), barW, SCALE_H(8), HALEHOUND_HOTPINK);
 
         uint32_t chars = tryGPSPin(scans[i].pin, scans[i].baud, 2500);
 
         // Show result for this attempt
-        tft.setCursor(10, 150);
+        tft.setCursor(SCALE_X(10), SCALE_Y(150));
         if (chars > 10) {
-            tft.setTextColor(0x07E0);  // Green
+            tft.setTextColor(0x07E0);
             tft.printf("FOUND! %lu chars", (unsigned long)chars);
 
             gpsActivePin = scans[i].pin;
@@ -702,14 +666,14 @@ void gpsSetup() {
     }
 
     // Show final result
-    tft.fillRect(0, 170, SCREEN_WIDTH, 40, TFT_BLACK);
+    tft.fillRect(0, SCALE_Y(170), SCREEN_WIDTH, SCALE_H(40), TFT_BLACK);
     if (gpsActivePin >= 0) {
         char resultBuf[40];
         snprintf(resultBuf, sizeof(resultBuf), "LOCKED: GPIO%d @ %d", gpsActivePin, gpsActiveBaud);
-        drawCenteredText(180, resultBuf, 0x07E0, 1);
+        drawCenteredText(SCALE_Y(180), resultBuf, 0x07E0, 1);
     } else {
-        drawCenteredText(175, "NO GPS FOUND", 0xF800, 2);
-        drawCenteredText(200, "Check wiring & power", HALEHOUND_GUNMETAL, 1);
+        drawCenteredText(SCALE_Y(175), "NO GPS FOUND", 0xF800, 2);
+        drawCenteredText(SCALE_Y(200), "Check wiring & power", HALEHOUND_GUNMETAL, 1);
         // Default to GPS_RX_PIN so screen still shows diagnostics
         gpsSerial.end();
         gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, -1);

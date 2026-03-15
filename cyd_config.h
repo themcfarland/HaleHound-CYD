@@ -3,11 +3,11 @@
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HaleHound-CYD Master Pin Configuration
-// Supports: ESP32-2432S028 (2.8"), ESP32-3248S035 (3.5"), QDtech E32R28T (2.8")
+// Supports: ESP32-2432S028 (2.8"), QDtech E32R28T (2.8"), QDtech E32R35T (3.5")
 // Created: 2026-02-06
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// BOARD SELECTION: Set by PlatformIO build flags (-DCYD_35=1, -DCYD_E32R28T=1)
+// BOARD SELECTION: Set by PlatformIO build flags (-DCYD_E32R28T=1, -DCYD_E32R35T=1)
 // Default: CYD_28 when no flag specified (backwards compatible)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -15,6 +15,14 @@
 #ifdef CYD_E32R28T
   #ifndef CYD_28
     #define CYD_28
+  #endif
+#endif
+
+// E32R35T inherits CYD_35 display — same ST7796, 320x480
+// Touch is XPT2046 resistive on shared HSPI (handled by TFT_eSPI TOUCH_CS)
+#ifdef CYD_E32R35T
+  #ifndef CYD_35
+    #define CYD_35
   #endif
 #endif
 
@@ -26,11 +34,11 @@
 // FIRMWARE VERSION — single source of truth
 // ═══════════════════════════════════════════════════════════════════════════
 
-#define FW_VERSION "v3.3.2"
+#define FW_VERSION "v3.4.0"
 
 #ifdef CYD_35
-  #define FW_EDITION   "CYD 3.5 Edition"
-  #define FW_DEVICE    "HaleHound-CYD-35"
+  #define FW_EDITION   "E32R35T Edition"
+  #define FW_DEVICE    "HaleHound-E32R35T"
 #elif defined(NMRF_HAT)
   #define FW_EDITION   "CYD-HAT Edition"
   #define FW_DEVICE    "HaleHound-CYD-HAT"
@@ -64,7 +72,7 @@
 
 #ifdef CYD_35
   #undef  CYD_BOARD_NAME
-  #define CYD_BOARD_NAME    "HaleHound-CYD 3.5\""
+  #define CYD_BOARD_NAME    "HaleHound-E32R35T 3.5\""
   #define CYD_SCREEN_WIDTH  320
   #define CYD_SCREEN_HEIGHT 480
   #define CYD_TFT_BL        27    // Backlight on GPIO27
@@ -95,12 +103,9 @@
 #endif
 
 #ifdef CYD_35
-  // 3.5" CYD uses GT911 capacitive touch (I2C, not SPI)
-  #define CYD_USE_GT911
-  #define CYD_GT911_SDA   33
-  #define CYD_GT911_SCL   32
-  #define CYD_GT911_RST   21    // RST on GPIO21 (matches Bruce firmware)
-  #define CYD_GT911_INT   25    // INT on GPIO25 (was mislabeled as RST — root cause of dead touch)
+  // E32R35T: XPT2046 resistive touch on SHARED HSPI with LCD
+  // Handled by TFT_eSPI built-in driver (TOUCH_CS in User_Setup.h)
+  // No separate touch SPI — CLK/MOSI/MISO shared on GPIO 14/13/12
 #endif
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -187,7 +192,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 #ifdef CYD_35
-  #define CC1101_CS     26    // Chip Select - GPIO 27 is backlight on 3.5", use GPIO 26
+  #define CC1101_CS     21    // Chip Select - SPI peripheral connector (E32R35T)
 #else
   #define CC1101_CS     27    // Chip Select - CN1 connector
 #endif
@@ -228,7 +233,11 @@
     #define CC1101_RX_EN     0    // PA receive enable — was BOOT button (pull-up = safe boot)
   #endif
 #endif
-// NOTE: CYD_35 uses GPIO 26 for CC1101_CS — PA pins TBD for 3.5" boards
+#ifdef CYD_35
+  // E32R35T: Same PA module support as E32R28T
+  #define CC1101_TX_EN     4    // SC8002B amp enable = PA TX_EN
+  #define CC1101_RX_EN     0    // BOOT button = PA RX_EN
+#endif
 
 // ═══════════════════════════════════════════════════════════════════════════
 // NRF24L01+PA+LNA 2.4GHz RADIO
@@ -274,8 +283,8 @@
   // NM-RF-Hat: physical switch selects CC1101 or NRF24 on same two GPIOs
   #define NRF24_CSN     27    // Shared with CC1101_CS via hat switch
   #define NRF24_CE      22    // Shared with CC1101_GDO0 via hat switch
-#elif defined(CYD_E32R28T)
-  // E32R28T: GPIO 4 used for CC1101_TX_EN (amp enable), NRF24_CSN moves to GPIO 26
+#elif defined(CYD_E32R28T) || defined(CYD_E32R35T)
+  // E32R28T/E32R35T: GPIO 4 used for CC1101_TX_EN (amp enable), NRF24_CSN moves to GPIO 26
   // GPIO 26 = DAC pad — coupling cap to SC8002B amp input (amp shut down = tiny load)
   #define NRF24_CSN     26    // Chip Select - DAC/speaker pad (amp dead)
   #define NRF24_CE      16    // Chip Enable - RGB Green pad
@@ -360,7 +369,7 @@
 #define UART_MON_P1_RX        3    // P1 RX pin (shared with USB Serial RX)
 #define UART_MON_P1_TX        1    // P1 TX pin (shared with USB Serial TX)
 #ifdef CYD_35
-  #define UART_MON_SPK_RX    -1    // GPIO 26 is CC1101_CS on 3.5" — no speaker RX
+  #define UART_MON_SPK_RX    -1    // GPIO 26 is NRF24_CSN on E32R35T — no speaker RX
 #elif defined(CYD_E32R28T)
   #define UART_MON_SPK_RX    -1    // GPIO 26 is NRF24_CSN on E32R28T — no speaker RX
 #else
@@ -374,8 +383,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // CYD boards only have BOOT button - use touchscreen for navigation
 
-#ifdef CYD_E32R28T
-  // E32R28T: GPIO 0 = CC1101_RX_EN — E07 PA module pulls it LOW permanently.
+#if defined(CYD_E32R28T) || defined(CYD_E32R35T)
+  // E32R28T/E32R35T: GPIO 0 = CC1101_RX_EN — E07 PA module pulls it LOW permanently.
   // Cannot use GPIO 0 as BOOT button. Use touch-only navigation.
   #define BOOT_BUTTON       0    // Still GPIO0 physically, but reads forced false below
   #define BOOT_BUTTON_USABLE 0   // DO NOT check digitalRead(0) — always reads LOW
@@ -468,7 +477,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // E32R28T-SPECIFIC FEATURES
 // ═══════════════════════════════════════════════════════════════════════════
-#ifdef CYD_E32R28T
+#if defined(CYD_E32R28T) || defined(CYD_E32R35T)
   #define CYD_HAS_BATTERY     1     // TP4854 LiPo charge IC on board
   #define CYD_BATTERY_ADC    34     // Battery voltage ADC (input only)
   #define CYD_HAS_AMP         1     // SC8002B audio amp — GPIO 4 = shutdown
@@ -491,9 +500,9 @@
 //   ├──────────┼───────────────────────────┼───────────────────────────────┤
 //   │ SD Card  │ GPIO 5                    │ Built-in slot, payload storage│
 //   │ CC1101   │ GPIO 27 (28"/E32R28T)     │ SubGHz radio                  │
-//   │          │ GPIO 26 (35")             │ (27 = backlight on 3.5")      │
+//   │          │ GPIO 21 (E32R35T)         │ (27 = backlight on 3.5")      │
 //   │ NRF24    │ GPIO 4  (28")             │ 2.4GHz radio                  │
-//   │          │ GPIO 26 (E32R28T)         │ (4 = amp enable on E32R28T)   │
+//   │          │ GPIO 26 (E32R28T/E32R35T) │ (4 = amp enable)              │
 //   │ PN532    │ GPIO 17                   │ NFC/RFID 13.56 MHz (LSBFIRST)│
 //   └──────────┴───────────────────────────┴───────────────────────────────┘
 //
@@ -549,7 +558,7 @@
 #define ICON_BAR_H        16                              // Icon bar height (16px icons)
 #define CONTENT_Y_START   38                              // First usable Y below icon bar
 
-// Icon bar TOUCH zones (generous for capacitive touch on 3.5")
+// Icon bar TOUCH zones (generous for fat fingers on 3.5")
 #ifdef CYD_35
   #define ICON_BAR_TOUCH_TOP     0                          // Touch starts at very top
   #define ICON_BAR_TOUCH_BOTTOM  55                         // Generous bottom for fat fingers

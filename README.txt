@@ -44,7 +44,7 @@
 
 **ESP32-DIV HaleHound Edition for Cheap Yellow Display**
 
-Version **v3.3.2 CYD Edition** | By [JesseCHale](https://github.com/JesseCHale)
+Version **v3.4.0 CYD Edition** | By [JesseCHale](https://github.com/JesseCHale)
 
 ---
 
@@ -119,16 +119,14 @@ All radios transmit at maximum power. No safety nets.
 
 ## Supported Boards
 
-| Board | Define | Display | Status |
-|-------|--------|---------|--------|
-| ESP32-2432S028 (2.8") | `CYD_28` | 240x320 ILI9341 | **Primary - Fully Tested** |
-| ESP32-3248S035 (3.5") | `CYD_35` | 320x480 ST7796 | Pin defines ready, untested |
+| Board | Build Target | Display | Status |
+|-------|-------------|---------|--------|
+| ESP32-2432S028 (2.8") | `esp32-cyd` | 240x320 ILI9341 | **Primary - Fully Tested** |
+| QDtech E32R35T (3.5") | `esp32-e32r35t` | 320x480 ST7796 | **Fully Tested** |
+| QDtech E32R28T (2.8") | `esp32-e32r28t` | 240x320 ILI9341 | Supported |
+| NM-RF-Hat (2.8") | `esp32-cyd-hat` | 240x320 ILI9341 | Supported |
 
-Board selection is in `cyd_config.h` line 14:
-```cpp
-#define CYD_28    // ESP32-2432S028 - 2.8" 320x240 ILI9341
-//#define CYD_35    // ESP32-3248S035 - 3.5" 480x320 ST7796
-```
+Board selection is automatic via PlatformIO build target (see platformio.ini).
 
 ---
 
@@ -247,7 +245,7 @@ The MicroSD slot is **built into the CYD board** on the back. No external wiring
 ## Menu Tree
 
 ```
-HALEHOUND-CYD v3.3.2
+HALEHOUND-CYD v3.4.0
 │
 ├── WiFi ──────────────────────────────────────────────────
 │   ├── Packet Monitor ......... Real-time 802.11 frame capture

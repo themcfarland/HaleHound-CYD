@@ -12,9 +12,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
-#ifdef CYD_35
-  #include <TAMC_GT911.h>
-#else
+#ifndef CYD_35
   #include "CYD28_TouchscreenR.h"
 #endif
 #include <TFT_eSPI.h>

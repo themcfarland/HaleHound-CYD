@@ -4,9 +4,23 @@
 // Created: 2026-02-06
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// BOARD SELECTION: Set by PlatformIO build flags (-DCYD_35=1)
+// BOARD SELECTION: Set by PlatformIO build flags (-DCYD_E32R28T=1, -DCYD_E32R35T=1)
 // Default: CYD_28 when no flag specified (backwards compatible)
 // ═══════════════════════════════════════════════════════════════════════════
+
+// E32R28T inherits CYD_28
+#ifdef CYD_E32R28T
+  #ifndef CYD_28
+    #define CYD_28
+  #endif
+#endif
+
+// E32R35T inherits CYD_35
+#ifdef CYD_E32R35T
+  #ifndef CYD_35
+    #define CYD_35
+  #endif
+#endif
 
 #if !defined(CYD_28) && !defined(CYD_35)
   #define CYD_28    // Default: ESP32-2432S028 - 2.8" 320x240 ILI9341
@@ -31,11 +45,11 @@
 #endif
 
 #ifdef CYD_35
-  // 3.5" CYD uses ST7796
+  // E32R35T 3.5" uses ST7796
   #define ST7796_DRIVER
   #define TFT_WIDTH  320
   #define TFT_HEIGHT 480
-  #define CYD_BOARD_NAME "CYD 3.5\" (ESP32-3248S035)"
+  #define CYD_BOARD_NAME "E32R35T 3.5\" (QDtech E32R35T)"
 #endif
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -64,10 +78,10 @@
 // SECTION 2B: TOUCH CONTROLLER PINS
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Touch chip select - XPT2046 (2.8" only, NOT GT911)
-#ifdef CYD_28
-  #define TOUCH_CS 33
-#endif
+// Touch chip select — XPT2046 on all boards
+// CYD 2.8": separate SPI bus (bit-banged)
+// E32R35T 3.5": shared HSPI with LCD (TFT_eSPI built-in driver)
+#define TOUCH_CS 33
 
 #ifdef CYD_28
   // 2.8" has DEDICATED touch SPI bus (separate from display)
@@ -79,13 +93,9 @@
 #endif
 
 #ifdef CYD_35
-  // 3.5" CYD uses GT911 capacitive touch (I2C, not SPI)
-  // No SPI touch pins needed — GT911 is I2C on dedicated pins
+  // E32R35T: XPT2046 resistive touch shares HSPI with LCD (GPIO 14/13/12)
+  // TFT_eSPI built-in driver handles touch via TOUCH_CS define above
   #define CYD_TOUCH_SEPARATE_SPI 0
-
-  // GT911 pin definitions are in cyd_config.h (single source of truth)
-  // SDA=33, SCL=32, RST=21, INT=25
-  #define CYD_35_CAPACITIVE
 #endif
 
 // ═══════════════════════════════════════════════════════════════════════════

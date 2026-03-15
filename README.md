@@ -44,13 +44,13 @@
 
 **ESP32-DIV HaleHound Edition for Cheap Yellow Display**
 
-Version **v3.3.2 CYD Edition** | By [JesseCHale](https://github.com/JesseCHale)
+Version **v3.4.0 CYD Edition** | By [JesseCHale](https://github.com/JesseCHale)
 
 ---
 
 ## Overview
 
-HaleHound-CYD is a multi-protocol offensive security toolkit built for the ESP32 "Cheap Yellow Display" (CYD) platform. Supports both the 2.8" (ESP32-2432S028) and 3.5" (ESP32-3248S035C) CYD boards. External CC1101 SubGHz, NRF24L01+PA+LNA 2.4GHz, PN532 NFC/RFID, and GPS modules connect via the CYD's breakout pins.
+HaleHound-CYD is a multi-protocol offensive security toolkit built for the ESP32 "Cheap Yellow Display" (CYD) platform. Supports the 2.8" (ESP32-2432S028), QDtech E32R28T (2.8"), and QDtech E32R35T (3.5") boards. External CC1101 SubGHz, NRF24L01+PA+LNA 2.4GHz, PN532 NFC/RFID, and GPS modules connect via the CYD's breakout pins.
 
 Every attack module from the original ESP32-DIV is present, plus CYD-exclusive features: full touchscreen navigation, EAPOL/PMKID capture, Karma attacks, wardriving with GPS logging, PN532 RFID card scanning/cloning/brute force, defensive jam detection, NRF24 promiscuous sniffer with MouseJack keystroke injection, AirTag attack suite (Phantom Flood, AirTag Replay, Find You), BLE HID keyboard injection (BLE Ducky), UART serial monitor for hardware hacking, and OTA firmware updates from SD card.
 
@@ -85,17 +85,17 @@ All radios transmit at maximum power. No safety nets.
 
 ## Hardware Requirements
 
-### Base Board (Either One)
+### Base Board (Any One)
 
-| Component | CYD 2.8" (ESP32-2432S028) | CYD 3.5" (ESP32-3248S035C) |
+| Component | CYD 2.8" (ESP32-2432S028) | E32R35T (QDtech E32R35T) |
 |-----------|---------------------------|---------------------------|
 | MCU | ESP32-WROOM-32 / 32UE | ESP32-WROOM-32 |
 | Display | 2.8" ILI9341 240x320 | 3.5" ST7796 320x480 |
-| Touch | XPT2046 Resistive (SPI) | GT911 Capacitive (I2C) |
+| Touch | XPT2046 Resistive (SPI) | XPT2046 Resistive (shared HSPI) |
 | Flash | 4MB minimum (16MB recommended) | 4MB minimum (16MB recommended) |
 | USB | CH340C (Micro-USB or USB-C) | CH340C (USB-C) |
 | SD Card | Built-in MicroSD (VSPI) | Built-in MicroSD (VSPI) |
-| Power | 5V USB or LiPo + boost | 5V USB or LiPo + boost |
+| Power | 5V USB or LiPo + boost | 5V USB + LiPo (TP4854) |
 | Backlight | GPIO 21 | GPIO 27 |
 
 ### External Modules (All Required for Full Functionality)
@@ -123,31 +123,32 @@ All radios transmit at maximum power. No safety nets.
 | Board | Build Target | Display | Touch | Status |
 |-------|-------------|---------|-------|--------|
 | ESP32-2432S028 (2.8") | `esp32-cyd` | 240x320 ILI9341 | XPT2046 Resistive | **Fully Tested** |
-| ESP32-3248S035C (3.5") | `esp32-cyd-35` | 320x480 ST7796 | GT911 Capacitive | **Fully Tested** |
+| QDtech E32R35T (3.5") | `esp32-e32r35t` | 320x480 ST7796 | XPT2046 Resistive | **Fully Tested** |
 | QDtech E32R28T (2.8") | `esp32-e32r28t` | 240x320 ILI9341 | XPT2046 Resistive | Supported |
 | NM-RF-Hat (2.8") | `esp32-cyd-hat` | 240x320 ILI9341 | XPT2046 Resistive | Supported |
 
 Board selection is automatic via PlatformIO build target. Build with:
 ```bash
 pio run -e esp32-cyd       # 2.8" CYD
-pio run -e esp32-cyd-35    # 3.5" CYD
+pio run -e esp32-e32r35t   # E32R35T 3.5"
 pio run -e esp32-e32r28t   # E32R28T
 pio run -e esp32-cyd-hat   # NM-RF-Hat
 ```
 
-### 3.5" CYD Differences
+### E32R35T 3.5" Differences
 
-The 3.5" CYD (ESP32-3248S035C) uses the same chip (ESP32-D0WD-V3) and all the same external radio wiring, with these board-level differences:
+The E32R35T (QDtech E32R35T) uses the same chip (ESP32-D0WD-V3) and similar external radio wiring, with these board-level differences:
 
-| Feature | 2.8" CYD | 3.5" CYD |
+| Feature | 2.8" CYD | E32R35T 3.5" |
 |---------|----------|----------|
 | Resolution | 240x320 | 320x480 |
 | Display Driver | ILI9341 | ST7796 |
-| Touch | XPT2046 (SPI, bit-banged) | GT911 (I2C, capacitive) |
+| Touch | XPT2046 (SPI, bit-banged) | XPT2046 (shared HSPI with LCD) |
 | Backlight | GPIO 21 | GPIO 27 |
-| CC1101 CS | GPIO 27 | **GPIO 26** (GPIO 27 = backlight) |
-| Speaker RX | GPIO 26 | N/A (GPIO 26 = CC1101 CS) |
-| Touch Pins | CLK=25, MOSI=32, MISO=39, CS=33 | SDA=33, SCL=32, RST=21, INT=25 |
+| CC1101 CS | GPIO 27 | **GPIO 21** (SPI peripheral connector) |
+| NRF24 CSN | GPIO 4 | **GPIO 26** (DAC/speaker pad) |
+| Touch Pins | CLK=25, MOSI=32, MISO=39, CS=33 | CLK=14, MOSI=13, MISO=12, CS=33 (shared HSPI) |
+| Battery | No | Yes (TP4854, ADC on GPIO 34) |
 
 All UI coordinates scale automatically via `SCALE_Y`/`SCALE_X`/`SCALE_W`/`SCALE_H` macros in `cyd_config.h`.
 
@@ -294,7 +295,7 @@ The MicroSD slot is **built into the CYD board** on the back. No external wiring
 ## Menu Tree
 
 ```
-HALEHOUND-CYD v3.3.2
+HALEHOUND-CYD v3.4.0
 │
 ├── WiFi ──────────────────────────────────────────────────
 │   ├── Packet Monitor ......... Real-time 802.11 frame capture
@@ -1120,8 +1121,8 @@ See `flash_package/FLASH_INSTRUCTIONS.txt` for complete step-by-step instruction
 # 2.8" CYD (default)
 pio run -e esp32-cyd
 
-# 3.5" CYD
-pio run -e esp32-cyd-35
+# E32R35T 3.5"
+pio run -e esp32-e32r35t
 
 # E32R28T variant
 pio run -e esp32-e32r28t
@@ -1136,8 +1137,8 @@ pio run -e esp32-cyd-hat
 # Build and upload (2.8")
 pio run -e esp32-cyd --target upload
 
-# Build and upload (3.5")
-pio run -e esp32-cyd-35 --target upload
+# Build and upload (E32R35T 3.5")
+pio run -e esp32-e32r35t --target upload
 
 # If serial port isn't auto-detected:
 pio run -e esp32-cyd --target upload --upload-port /dev/cu.usbserial-0001

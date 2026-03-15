@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // HaleHound-CYD Main Firmware
 // ESP32 Cheap Yellow Display Edition
-// v3.3.2 — Bug fixes, jammer cleanup, Evil Twin, Valhalla, MouseJack UI
+// v3.4.0 — Replace CYD 3.5" with E32R35T, fix touch, scale GPS for 320x480
 // Created: 2026-02-06
 // ═══════════════════════════════════════════════════════════════════════════
 //
@@ -3618,8 +3618,7 @@ void activateValhalla() {
     tft.print("CANCEL");
 
     // Hold-to-confirm logic
-    // GT911 (3.5" CYD) edge-trigger kills sustained touch after first frame.
-    // Fix: use getTouchPoint() for initial detection, isStillTouched() during hold.
+    // Use getTouchPoint() for initial detection, isStillTouched() during hold.
     unsigned long holdStart = 0;
     bool holding = false;
     const unsigned long holdDuration = 3000;  // 3 seconds
@@ -3652,7 +3651,6 @@ void activateValhalla() {
             }
         } else {
             // Holding — use level-triggered isStillTouched() to track finger
-            // (bypasses GT911 edge-trigger that would kill the hold)
             if (!isStillTouched()) {
                 // Finger lifted — reset hold
                 holding = false;
@@ -4140,8 +4138,8 @@ void setup() {
     spiManagerSetup();
     Serial.println("[INIT] SPI Manager OK");
 
-    // Touch buttons — init early so GT911 (3.5" CYD) is ready before NRF24 check
-    // GT911 uses I2C, XPT2046 uses software SPI — neither conflicts with VSPI radios
+    // Touch buttons — init early so touch is ready before NRF24 check
+    // XPT2046 uses software SPI (2.8") or shared HSPI (E32R35T) — neither conflicts with VSPI radios
     initButtons();
     Serial.println("[INIT] Touch buttons OK");
 
