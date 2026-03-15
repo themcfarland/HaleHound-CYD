@@ -185,10 +185,14 @@ The CYD has **two independent SPI buses**. Understanding this is critical:
   │                                                             │
   │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
   │  │ SD Card  │  │  CC1101  │  │  NRF24   │  │  PN532   │  │
-  │  │ CS=GPIO5 │  │ CS=GPIO27│  │ CSN=GPIO4│  │ CS=GPIO17│  │
+  │  │ CS=GPIO5 │  │ CS=G27*  │  │ CSN=G4*  │  │ CS=GPIO17│  │
   │  │ (built-in│  │ GDO0=G22 │  │ CE=GPIO16│  │ (RFID/   │  │
   │  │  slot)   │  │ GDO2=G35 │  │          │  │  NFC)    │  │
   │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
+  │                                                             │
+  │  * CS pins differ by board:                                 │
+  │    CC1101 CS: GPIO 27 (2.8"/E32R28T) | GPIO 21 (E32R35T)   │
+  │    NRF24 CSN: GPIO 4  (2.8")        | GPIO 26 (E32R28T/35T)│
   │                                                             │
   │  IMPORTANT: Only ONE device active at a time!               │
   │  Pull target CS LOW, all others HIGH before SPI transfer.   │
@@ -215,7 +219,7 @@ The CYD has **two independent SPI buses**. Understanding this is critical:
 └─────────────────┘              └──────────────────┘
 ```
 
-**3.5" CYD Note:** CC1101 CS moves to **GPIO 26** on the 3.5" board because GPIO 27 is the backlight pin. All other CC1101 pins are identical.
+**E32R28T / E32R35T Note:** CC1101 CS moves to **GPIO 21** on the E32R35T because GPIO 27 is the backlight pin. E32R28T keeps GPIO 27. All other CC1101 pins are identical across all boards.
 
 **GDO0/GDO2 Pin Naming Fix:** The original ESP32-DIV firmware (CiferTech) had TX and RX **swapped**. HaleHound corrects this:
 - **GDO0** (GPIO 22) = Data going **TO** the CC1101 (TX line)
@@ -240,6 +244,8 @@ GPIO 35 is input-only on ESP32, which is correct for RX.
 │ IRQ (optional) ──┼──────────────┤ GPIO 17 (was RGB B)│
 └─────────────────┘              └──────────────────┘
 ```
+
+**E32R28T / E32R35T Note:** NRF24 CSN moves to **GPIO 26** (DAC/speaker pad) because GPIO 4 is used for CC1101 PA module TX_EN. CE and IRQ stay on GPIO 16 and 17. All other pins are identical.
 
 **Power Note:** The +PA+LNA version draws significant current. If you get random resets or failed init, solder a **10uF capacitor** between VCC and GND directly at the NRF24 module.
 
@@ -1251,7 +1257,7 @@ Three devices share the VSPI bus (GPIO 18/19/23). The `spi_manager` module handl
 | GPS shares GPIO 3 with USB serial | By design | Firmware calls Serial.end() during GPS, restores on exit |
 | RGB LED unavailable | By design | Pins repurposed for NRF24 CE/CSN and PN532 CS |
 | Speaker unavailable (2.8") | By design | GPIO 26 repurposed for serial monitor RX |
-| Speaker unavailable (3.5") | By design | GPIO 26 = CC1101 CS on 3.5" |
+| Speaker unavailable (E32R28T/E32R35T) | By design | GPIO 26 = NRF24 CSN on E32R28T/E32R35T |
 | Python 3.14 breaks PlatformIO build | Platform bug | Patch `platform.py` or use Python 3.10-3.13 |
 | NRF24+PA+LNA random resets | Power issue | Add 10uF capacitor between VCC/GND at module |
 | CYD boards have different LCD panel orientations | Hardware variance | Use Settings > Rotation to select the correct portrait orientation |

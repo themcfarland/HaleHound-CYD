@@ -184,6 +184,23 @@
 // │ RX_EN ──────┼──────┤ GPIO 0      │ (BOOT pad) PA receive
 // └─────────────┘      └─────────────┘
 //
+// WIRING DIAGRAM (E32R35T — E07-433M20S PA Module):
+// ┌─────────────┐      ┌─────────────┐
+// │ E07-433M20S │      │   E32R35T   │
+// │  CC1101+PA  │      │   ESP32     │
+// ├─────────────┤      ├─────────────┤
+// │ VCC ────────┼──────┤ 3.3V        │
+// │ GND ────────┼──────┤ GND         │
+// │ SCK ────────┼──────┤ GPIO 18     │ (4P SPI connector)
+// │ MOSI ───────┼──────┤ GPIO 23     │ (4P SPI connector)
+// │ MISO ───────┼──────┤ GPIO 19     │ (4P SPI connector)
+// │ CS ─────────┼──────┤ GPIO 21     │ (SPI peripheral connector CS)
+// │ GDO0 ───────┼──────┤ GPIO 22     │ (RGB Red pad) TX to radio
+// │ GDO2 ───────┼──────┤ GPIO 35     │ (Expand connector) RX from radio
+// │ TX_EN ──────┼──────┤ GPIO 4      │ (Amp enable pad) PA transmit
+// │ RX_EN ──────┼──────┤ GPIO 0      │ (BOOT pad) PA receive
+// └─────────────┘      └─────────────┘
+//
 // IMPORTANT: GDO0/GDO2 naming is confusing!
 // - GDO0 (GPIO22) = Data going TO the CC1101 (for TX)
 // - GDO2 (GPIO35) = Data coming FROM the CC1101 (for RX)
@@ -261,6 +278,21 @@
 // WIRING DIAGRAM (E32R28T — E01-2G4M27SX):
 // ┌─────────────┐      ┌─────────────┐
 // │ E01-2G4M27  │      │   E32R28T   │
+// │    SX       │      │   ESP32     │
+// ├─────────────┤      ├─────────────┤
+// │ VCC ────────┼──────┤ 3.3V        │ (add 10uF cap if unstable!)
+// │ GND ────────┼──────┤ GND         │
+// │ SCK ────────┼──────┤ GPIO 18     │ (shared VSPI)
+// │ MOSI ───────┼──────┤ GPIO 23     │ (shared VSPI)
+// │ MISO ───────┼──────┤ GPIO 19     │ (shared VSPI)
+// │ CSN ────────┼──────┤ GPIO 26     │ (DAC pad — amp shut down)
+// │ CE ─────────┼──────┤ GPIO 16     │ (RGB Green pad)
+// │ IRQ ────────┼──────┤ N/C         │ (GPIO 17 used for PN532)
+// └─────────────┘      └─────────────┘
+//
+// WIRING DIAGRAM (E32R35T — E01-2G4M27SX):
+// ┌─────────────┐      ┌─────────────┐
+// │ E01-2G4M27  │      │   E32R35T   │
 // │    SX       │      │   ESP32     │
 // ├─────────────┤      ├─────────────┤
 // │ VCC ────────┼──────┤ 3.3V        │ (add 10uF cap if unstable!)
