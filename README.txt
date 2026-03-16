@@ -319,7 +319,7 @@ HALEHOUND-CYD v3.4.0
 │   ├── Screen Timeout ......... 30s / 1m / 2m / 5m / 10m / Never
 │   ├── Swap Colors ............ BGR / RGB panel toggle
 │   ├── Rotation ............... Portrait orientation fix (0° / 180° / 90CW / 90CCW)
-│   ├── Device Info ............ Hardware stats (+ Easter Egg)
+│   ├── Device Info ............ Hardware stats
 │   └── Back to Main Menu
 │
 └── About ─────────────────────────────────────────────────
@@ -889,8 +889,6 @@ Touch input automatically recalibrates after every rotation change. The selected
 #### Device Info
 
 Hardware information page showing: device name, firmware version, free heap, CPU frequency, flash size, and board type.
-
-**Easter Egg:** Tap "By: HaleHound" five times rapidly to reveal the PR #76 story.
 
 ---
 

@@ -606,13 +606,21 @@ static void stopPromiscuous() {
 
 static void initSD() {
     spiDeselect();
-    if (SD.begin(SD_CS)) {
-        sdReady = true;
-        if (!SD.exists(EC_PCAP_DIR)) {
-            SD.mkdir(EC_PCAP_DIR);
+    pinMode(SD_CS, OUTPUT);
+    digitalWrite(SD_CS, HIGH);
+
+    if (!SD.begin(SD_CS)) {
+        // Retry with explicit VSPI init at 4MHz (required on E32R28T)
+        SPI.begin(18, 19, 23, SD_CS);
+        if (!SD.begin(SD_CS, SPI, 4000000)) {
+            sdReady = false;
+            return;
         }
-    } else {
-        sdReady = false;
+    }
+
+    sdReady = true;
+    if (!SD.exists(EC_PCAP_DIR)) {
+        SD.mkdir(EC_PCAP_DIR);
     }
 }
 

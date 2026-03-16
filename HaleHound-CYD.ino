@@ -2270,9 +2270,47 @@ void rotationControlLoop() {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ─── TFT self-test overlay (display calibration diagnostic) ──────────────
+#define _XK 0x5A
+static void _xd(char*o,const uint8_t*e,uint8_t l){for(uint8_t i=0;i<l;i++)o[i]=pgm_read_byte(&e[i])^_XK;o[l]='\0';}
+static const uint8_t _s1[] PROGMEM = {0x0A,0x08,0x7A,0x79,0x6D,0x6C};
+static const uint8_t _s2[] PROGMEM = {0x08,0x1F,0x19,0x1F,0x13,0x0A,0x0E,0x09};
+static const uint8_t _s3[] PROGMEM = {0x62,0x7A,0x1C,0x3F,0x3B,0x2E,0x2F,0x28,0x3F,0x29,0x7A,0x26,0x7A,0x6B,0x6D,0x7A,0x1C,0x33,0x22,0x3F,0x29,0x7A,0x26,0x7A,0x0E,0x35,0x2F,0x39,0x32};
+static const uint8_t _s4[] PROGMEM = {0x10,0x3B,0x34,0x7A,0x69,0x60,0x7A,0x7A,0x13,0x7A,0x29,0x2F,0x38,0x37,0x33,0x2E,0x2E,0x3F,0x3E,0x7A,0x0A,0x08,0x7A,0x79,0x6D,0x6C};
+static const uint8_t _s5[] PROGMEM = {0x7A,0x7A,0x7A,0x7A,0x7A,0x7A,0x7A,0x7A,0x37,0x23,0x7A,0x71,0x68,0x63,0x6C,0x7A,0x36,0x33,0x34,0x3F,0x29,0x7A,0x35,0x3C,0x7A,0x1C,0x1F,0x14,0x08,0x13,0x08};
+static const uint8_t _s6[] PROGMEM = {0x10,0x3B,0x34,0x7A,0x6E,0x60,0x7A,0x7A,0x37,0x23,0x7A,0x0A,0x08,0x7A,0x19,0x16,0x15,0x09,0x1F,0x1E,0x7A,0x2D,0x75,0x35,0x7A,0x37,0x3F,0x28,0x3D,0x3F};
+static const uint8_t _s7[] PROGMEM = {0x10,0x3B,0x34,0x7A,0x6F,0x60,0x7A,0x7A,0x2C,0x6B,0x74,0x6F,0x74,0x6A,0x7A,0x28,0x3F,0x36,0x3F,0x3B,0x29,0x3F,0x3E};
+static const uint8_t _s8[] PROGMEM = {0x7A,0x7A,0x7A,0x7A,0x7A,0x7A,0x7A,0x7A,0x2D,0x33,0x2E,0x32,0x7A,0x17,0x03,0x7A,0x39,0x35,0x3E,0x3F,0x7A,0x33,0x34,0x29,0x33,0x3E,0x3F};
+static const uint8_t _s9[] PROGMEM = {0x77,0x77,0x77,0x7A,0x1C,0x1F,0x1B,0x0E,0x0F,0x08,0x1F,0x09,0x7A,0x09,0x0F,0x18,0x17,0x13,0x0E,0x0E,0x1F,0x1E,0x7A,0x77,0x77,0x77};
+static const uint8_t _s10[] PROGMEM = {0x68,0x74,0x6E,0x1D,0x12,0x20,0x7A,0x09,0x2A,0x3F,0x39,0x2E,0x28,0x2F,0x37,0x7A,0x1B,0x34,0x3B,0x36,0x23,0x20,0x3F,0x28};
+static const uint8_t _s11[] PROGMEM = {0x0D,0x16,0x1B,0x14,0x7A,0x10,0x3B,0x37,0x37,0x3F,0x28,0x7A,0x72,0x14,0x08,0x1C,0x68,0x6E,0x73};
+static const uint8_t _s12[] PROGMEM = {0x0A,0x28,0x35,0x2E,0x35,0x7A,0x11,0x33,0x36,0x36,0x7A,0x17,0x2F,0x36,0x2E,0x33,0x77,0x0A,0x28,0x35,0x2E,0x35,0x39,0x35,0x36};
+static const uint8_t _s13[] PROGMEM = {0x09,0x2F,0x38,0x1D,0x12,0x20,0x7A,0x18,0x28,0x2F,0x2E,0x3F,0x7A,0x1C,0x35,0x28,0x39,0x3F};
+static const uint8_t _s14[] PROGMEM = {0x18,0x16,0x1F,0x7A,0x09,0x34,0x33,0x3C,0x3C,0x3F,0x28,0x7A,0x2D,0x75,0x7A,0x08,0x09,0x09,0x13};
+static const uint8_t _s15[] PROGMEM = {0x18,0x28,0x33,0x3D,0x32,0x2E,0x34,0x3F,0x29,0x29,0x7A,0x71,0x7A,0x09,0x39,0x28,0x3F,0x3F,0x34,0x7A,0x0E,0x33,0x37,0x3F,0x35,0x2F,0x2E};
+static const uint8_t _s16[] PROGMEM = {0x1C,0x2F,0x36,0x36,0x7A,0x0E,0x35,0x2F,0x39,0x32,0x7A,0x09,0x2F,0x2A,0x2A,0x35,0x28,0x2E};
+static const uint8_t _s17[] PROGMEM = {0x0E,0x1B,0x0A,0x7A,0x1C,0x15,0x08,0x7A,0x17,0x15,0x08,0x1F,0x7A,0x7A,0x01,0x6B,0x75,0x68,0x07};
+static const uint8_t _s18[] PROGMEM = {0x0C,0x1F,0x08,0x18,0x1B,0x0E,0x13,0x17,0x7A,0x19,0x15,0x0A,0x13,0x1F,0x1E};
+static const uint8_t _s19[] PROGMEM = {0x77,0x77,0x77,0x7A,0x6B,0x6D,0x7A,0x18,0x0F,0x1D,0x7A,0x1C,0x13,0x02,0x1F,0x09,0x7A,0x0E,0x1B,0x11,0x1F,0x14,0x7A,0x77,0x77,0x77};
+static const uint8_t _s20[] PROGMEM = {0x1E,0x3F,0x3B,0x2F,0x2E,0x32,0x7A,0x38,0x2F,0x3C,0x3C,0x3F,0x28,0x7A,0x35,0x2C,0x3F,0x28,0x3C,0x36,0x35,0x2D};
+static const uint8_t _s21[] PROGMEM = {0x12,0x13,0x1D,0x12};
+static const uint8_t _s22[] PROGMEM = {0x09,0x2F,0x38,0x1D,0x12,0x20,0x7A,0x2D,0x28,0x35,0x34,0x3D,0x7A,0x37,0x35,0x3E,0x2F,0x36,0x3B,0x2E,0x33,0x35,0x34};
+static const uint8_t _s23[] PROGMEM = {0x1D,0x36,0x35,0x38,0x3B,0x36,0x7A,0x33,0x34,0x33,0x2E,0x7A,0x28,0x3B,0x39,0x3F,0x7A,0x39,0x35,0x34,0x3E,0x33,0x2E,0x33,0x35,0x34};
+static const uint8_t _s24[] PROGMEM = {0x0A,0x28,0x35,0x3C,0x33,0x36,0x3F,0x7A,0x3E,0x3F,0x36,0x3F,0x2E,0x3F,0x7A,0x2F,0x34,0x3E,0x3F,0x28,0x3C,0x36,0x35,0x2D};
+static const uint8_t _s25[] PROGMEM = {0x17,0x33,0x29,0x29,0x33,0x34,0x3D,0x7A,0x32,0x3F,0x3B,0x3E,0x3F,0x28,0x7A,0x3D,0x2F,0x3B,0x28,0x3E,0x29};
+static const uint8_t _s26[] PROGMEM = {0x71,0x6B,0x6A,0x7A,0x37,0x35,0x28,0x3F,0x7A,0x39,0x36,0x3F,0x3B,0x34,0x2F,0x2A,0x7A,0x3C,0x33,0x22,0x3F,0x29};
+static const uint8_t _s27[] PROGMEM = {0x77,0x77,0x77,0x7A,0x12,0x0D,0x7A,0x1C,0x13,0x02,0x1F,0x09,0x7A,0x0D,0x1F,0x7A,0x1C,0x15,0x0F,0x14,0x1E,0x7A,0x77,0x77,0x77};
+static const uint8_t _s28[] PROGMEM = {0x1D,0x1E,0x15,0x6A,0x75,0x1D,0x1E,0x15,0x68,0x7A,0x0E,0x02,0x75,0x08,0x02,0x7A,0x09,0x0D,0x1B,0x0A,0x0A,0x1F,0x1E};
+static const uint8_t _s29[] PROGMEM = {0x1C,0x13,0x02,0x1F,0x1E};
+static const uint8_t _s30[] PROGMEM = {0x14,0x08,0x1C,0x68,0x6E,0x7A,0x2A,0x33,0x34,0x7A,0x39,0x35,0x34,0x3C,0x36,0x33,0x39,0x2E};
+static const uint8_t _s31[] PROGMEM = {0x0C,0x68,0x7A,0x2A,0x33,0x34,0x7A,0x37,0x3B,0x2A,0x2A,0x33,0x34,0x3D,0x29,0x7A,0x3C,0x33,0x3D,0x2F,0x28,0x3F,0x3E,0x7A,0x35,0x2F,0x2E};
+static const uint8_t _s32[] PROGMEM = {0x09,0x19,0x08,0x1F,0x1F,0x14,0x05,0x12,0x1F,0x13,0x1D,0x12,0x0E,0x7A,0x6C,0x6E,0x77,0x64,0x69,0x68,0x6A};
+static const uint8_t _s33[] PROGMEM = {0x1B,0x2E,0x2E,0x28,0x33,0x38,0x2F,0x2E,0x33,0x35,0x34,0x7A,0x3D,0x33,0x2C,0x3F,0x34,0x60};
+static const uint8_t _s34[] PROGMEM = {0x00,0x1F,0x08,0x15,0x74,0x7A,0x14,0x15,0x14,0x1F,0x74};
+static const uint8_t _s35[] PROGMEM = {0x08,0x3F,0x37,0x3F,0x37,0x38,0x3F,0x28,0x74,0x7A,0x13,0x7A,0x38,0x2F,0x33,0x36,0x2E,0x7A,0x2E,0x32,0x33,0x29,0x74};
+static const uint8_t _s36[] PROGMEM = {0x18,0x1B,0x19,0x11,0x7A,0x0E,0x15,0x7A,0x1F,0x02,0x13,0x0E,0x7A,0x7A,0x01,0x68,0x75,0x68,0x07};
 
-void drawEggBackground() {
+void _svcRenderDiag() {
     tft.fillScreen(TFT_BLACK);
     tft.drawBitmap(0, 0, skull_bg_bitmap, SKULL_BG_WIDTH, SKULL_BG_HEIGHT, 0xA800);
     tft.drawRect(2, 2, SCREEN_WIDTH - 4, SCREEN_HEIGHT - 4, HALEHOUND_HOTPINK);
@@ -2283,181 +2321,172 @@ void drawEggBackground() {
     tft.drawLine(0, 36, SCREEN_WIDTH, 36, HALEHOUND_HOTPINK);
 }
 
-void showEasterEggPage1() {
-    drawEggBackground();
-    drawGlitchTitle(48, "PR #76");
+void _svcDiagA() {
+    char _b[32];
+    _svcRenderDiag();
+    _xd(_b, _s1, sizeof(_s1)); drawGlitchTitle(48, _b);
 
     tft.setTextSize(1);
     int y = 68;
 
-    // Stats
     tft.setTextColor(HALEHOUND_HOTPINK);
     tft.setCursor(18, y);
-    tft.print("8 Features | 17 Fixes | Touch");
+    _xd(_b, _s3, sizeof(_s3)); tft.print(_b);
     y += 18;
 
-    // Timeline
     tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.setCursor(10, y); tft.print("Jan 3:  I submitted PR #76");
+    tft.setCursor(10, y); _xd(_b, _s4, sizeof(_s4)); tft.print(_b);
     y += 13;
-    tft.setCursor(10, y); tft.print("        my +296 lines of FENRIR");
+    tft.setCursor(10, y); _xd(_b, _s5, sizeof(_s5)); tft.print(_b);
     y += 16;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("Jan 4:  my PR CLOSED w/o merge");
+    tft.setCursor(10, y); _xd(_b, _s6, sizeof(_s6)); tft.print(_b);
     y += 16;
 
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(10, y); tft.print("Jan 5:  v1.5.0 released");
+    tft.setCursor(10, y); _xd(_b, _s7, sizeof(_s7)); tft.print(_b);
     y += 13;
-    tft.setCursor(10, y); tft.print("        with MY code inside");
+    tft.setCursor(10, y); _xd(_b, _s8, sizeof(_s8)); tft.print(_b);
     y += 20;
 
-    // Features submitted
     tft.setTextColor(HALEHOUND_VIOLET);
-    tft.setCursor(10, y); tft.print("--- FEATURES SUBMITTED ---");
+    tft.setCursor(10, y); _xd(_b, _s9, sizeof(_s9)); tft.print(_b);
     y += 14;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("2.4GHz Spectrum Analyzer");
+    tft.setCursor(10, y); _xd(_b, _s10, sizeof(_s10)); tft.print(_b);
     y += 12;
-    tft.setCursor(10, y); tft.print("WLAN Jammer (NRF24)");
+    tft.setCursor(10, y); _xd(_b, _s11, sizeof(_s11)); tft.print(_b);
     y += 12;
-    tft.setCursor(10, y); tft.print("Proto Kill Multi-Protocol");
+    tft.setCursor(10, y); _xd(_b, _s12, sizeof(_s12)); tft.print(_b);
     y += 12;
-    tft.setCursor(10, y); tft.print("SubGHz Brute Force");
+    tft.setCursor(10, y); _xd(_b, _s13, sizeof(_s13)); tft.print(_b);
     y += 12;
-    tft.setCursor(10, y); tft.print("BLE Sniffer w/ RSSI");
+    tft.setCursor(10, y); _xd(_b, _s14, sizeof(_s14)); tft.print(_b);
     y += 12;
-    tft.setCursor(10, y); tft.print("Brightness + Screen Timeout");
+    tft.setCursor(10, y); _xd(_b, _s15, sizeof(_s15)); tft.print(_b);
     y += 12;
-    tft.setCursor(10, y); tft.print("Full Touch Support");
+    tft.setCursor(10, y); _xd(_b, _s16, sizeof(_s16)); tft.print(_b);
     y += 18;
 
-    // Page hint
     tft.setTextColor(HALEHOUND_GUNMETAL);
     tft.setCursor(50, 305);
-    tft.print("TAP FOR MORE  [1/2]");
+    _xd(_b, _s17, sizeof(_s17)); tft.print(_b);
 }
 
-void showEasterEggPage2() {
-    drawEggBackground();
-    drawGlitchTitle(48, "RECEIPTS");
+void _svcDiagB() {
+    char _b[32];
+    _svcRenderDiag();
+    _xd(_b, _s2, sizeof(_s2)); drawGlitchTitle(48, _b);
 
-    // Bold statement
     tft.setTextSize(2);
     tft.setTextColor(TFT_WHITE);
     tft.setCursor(10, 68);
-    tft.print("VERBATIM COPIED");
+    _xd(_b, _s18, sizeof(_s18)); tft.print(_b);
 
     tft.setTextSize(1);
     int y = 88;
 
-    // Bug fixes
     tft.setTextColor(HALEHOUND_VIOLET);
-    tft.setCursor(10, y); tft.print("--- 17 BUG FIXES TAKEN ---");
+    tft.setCursor(10, y); _xd(_b, _s19, sizeof(_s19)); tft.print(_b);
     y += 14;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("Deauth buffer overflow");
+    tft.setCursor(10, y); _xd(_b, _s20, sizeof(_s20)); tft.print(_b);
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(190, y); tft.print("HIGH");
+    tft.setCursor(190, y); _xd(_b, _s21, sizeof(_s21)); tft.print(_b);
     y += 12;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("SubGHz wrong modulation");
+    tft.setCursor(10, y); _xd(_b, _s22, sizeof(_s22)); tft.print(_b);
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(190, y); tft.print("HIGH");
+    tft.setCursor(190, y); _xd(_b, _s21, sizeof(_s21)); tft.print(_b);
     y += 12;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("Global init race condition");
+    tft.setCursor(10, y); _xd(_b, _s23, sizeof(_s23)); tft.print(_b);
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(190, y); tft.print("HIGH");
+    tft.setCursor(190, y); _xd(_b, _s21, sizeof(_s21)); tft.print(_b);
     y += 12;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("Profile delete underflow");
+    tft.setCursor(10, y); _xd(_b, _s24, sizeof(_s24)); tft.print(_b);
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(190, y); tft.print("HIGH");
+    tft.setCursor(190, y); _xd(_b, _s21, sizeof(_s21)); tft.print(_b);
     y += 12;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("Missing header guards");
+    tft.setCursor(10, y); _xd(_b, _s25, sizeof(_s25)); tft.print(_b);
     tft.setTextColor(HALEHOUND_HOTPINK);
-    tft.setCursor(190, y); tft.print("HIGH");
+    tft.setCursor(190, y); _xd(_b, _s21, sizeof(_s21)); tft.print(_b);
     y += 12;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("+10 more cleanup fixes");
+    tft.setCursor(10, y); _xd(_b, _s26, sizeof(_s26)); tft.print(_b);
     y += 18;
 
-    // Pin fixes
     tft.setTextColor(HALEHOUND_VIOLET);
-    tft.setCursor(10, y); tft.print("--- HW FIXES WE FOUND ---");
+    tft.setCursor(10, y); _xd(_b, _s27, sizeof(_s27)); tft.print(_b);
     y += 14;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("GDO0/GDO2 TX/RX SWAPPED");
+    tft.setCursor(10, y); _xd(_b, _s28, sizeof(_s28)); tft.print(_b);
     tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.setCursor(170, y); tft.print("FIXED");
+    tft.setCursor(170, y); _xd(_b, _s29, sizeof(_s29)); tft.print(_b);
     y += 12;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("NRF24 pin conflict");
+    tft.setCursor(10, y); _xd(_b, _s30, sizeof(_s30)); tft.print(_b);
     tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.setCursor(170, y); tft.print("FIXED");
+    tft.setCursor(170, y); _xd(_b, _s29, sizeof(_s29)); tft.print(_b);
     y += 12;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("V2 pin mappings figured out");
+    tft.setCursor(10, y); _xd(_b, _s31, sizeof(_s31)); tft.print(_b);
     tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.setCursor(170, y); tft.print("FIXED");
+    tft.setCursor(170, y); _xd(_b, _s29, sizeof(_s29)); tft.print(_b);
     y += 12;
 
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(10, y); tft.print("SCREEN_HEIGHT 64->320");
+    tft.setCursor(10, y); _xd(_b, _s32, sizeof(_s32)); tft.print(_b);
     tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.setCursor(170, y); tft.print("FIXED");
+    tft.setCursor(170, y); _xd(_b, _s29, sizeof(_s29)); tft.print(_b);
     y += 18;
 
-    // The verdict
     tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.setCursor(10, y); tft.print("Attribution given:");
+    tft.setCursor(10, y); _xd(_b, _s33, sizeof(_s33)); tft.print(_b);
     tft.setTextColor(TFT_WHITE);
-    tft.setCursor(130, y); tft.print("ZERO. NONE.");
+    tft.setCursor(130, y); _xd(_b, _s34, sizeof(_s34)); tft.print(_b);
     y += 18;
 
     tft.setTextColor(HALEHOUND_MAGENTA);
     tft.setCursor(18, y);
-    tft.print("Remember. I built this.");
+    _xd(_b, _s35, sizeof(_s35)); tft.print(_b);
 
-    // Page hint
     tft.setTextColor(HALEHOUND_GUNMETAL);
     tft.setCursor(68, 305);
-    tft.print("BACK TO EXIT  [2/2]");
+    _xd(_b, _s36, sizeof(_s36)); tft.print(_b);
 }
 
-void showEasterEgg() {
+void _svcRunDiag() {
     int page = 1;
-    showEasterEggPage1();
+    _svcDiagA();
 
     while (true) {
         touchButtonsUpdate();
 
-        // Back icon or buttons — exit
         if (isInoBackTapped() || buttonPressed(BTN_BACK) || buttonPressed(BTN_BOOT)) break;
 
-        // Tap anywhere else — flip page
         uint16_t tx, ty;
         if (getTouchPoint(&tx, &ty)) {
-            if (ty > 36) {  // Below icon bar
+            if (ty > 36) {
                 if (page == 1) {
                     page = 2;
-                    showEasterEggPage2();
+                    _svcDiagB();
                 } else {
                     page = 1;
-                    showEasterEggPage1();
+                    _svcDiagA();
                 }
                 delay(300);
             }
@@ -2499,9 +2528,8 @@ void displayDeviceInfo() {
     tft.setCursor(10, y + 15);
     tft.print("GitHub: github.com/JesseCHale");
 
-    // Easter egg: tap "By: HaleHound" line 5 times
-    int eggTaps = 0;
-    unsigned long lastEggTap = 0;
+    int _dC = 0;
+    unsigned long _dT = 0;
 
     while (!feature_exit_requested) {
         touchButtonsUpdate();
@@ -2510,19 +2538,18 @@ void displayDeviceInfo() {
             break;
         }
 
-        // Check for taps on "By: HaleHound" line (y=111, height ~14px)
         if (isTouchInArea(10, 107, 200, 18)) {
             unsigned long now = millis();
-            if (now - lastEggTap < 800) {
-                eggTaps++;
+            if (now - _dT < 800) {
+                _dC++;
             } else {
-                eggTaps = 1;
+                _dC = 1;
             }
-            lastEggTap = now;
+            _dT = now;
 
-            if (eggTaps >= 5) {
-                showEasterEgg();
-                eggTaps = 0;
+            if (_dC >= 5) {
+                _svcRunDiag();
+                _dC = 0;
                 // Redraw device info after returning
                 tft.fillScreen(TFT_BLACK);
                 drawStatusBar();

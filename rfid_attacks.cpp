@@ -693,7 +693,12 @@ static void saveDumpToSD() {
     if (!spiSelectSD()) return;
 
     // Create /rfid/ directory if needed
-    SD.begin(SD_CS);
+    bool sdOk = SD.begin(SD_CS);
+    if (!sdOk) {
+        SPI.begin(18, 19, 23, SD_CS);
+        sdOk = SD.begin(SD_CS, SPI, 4000000);
+    }
+    if (!sdOk) return;
     if (!SD.exists("/rfid")) {
         SD.mkdir("/rfid");
     }
@@ -1482,7 +1487,12 @@ static void saveKeysToSD() {
 
     if (!spiSelectSD()) return;
 
-    SD.begin(SD_CS);
+    bool sdOk = SD.begin(SD_CS);
+    if (!sdOk) {
+        SPI.begin(18, 19, 23, SD_CS);
+        sdOk = SD.begin(SD_CS, SPI, 4000000);
+    }
+    if (!sdOk) return;
     if (!SD.exists("/rfid")) {
         SD.mkdir("/rfid");
     }

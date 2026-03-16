@@ -382,7 +382,7 @@ HALEHOUND-CYD v3.4.0
 │   ├── Swap Colors ............ BGR / RGB panel toggle
 │   ├── Theme .................. Color theme selection
 │   ├── Rotation ............... Portrait orientation (0°/180°/90CW/90CCW)
-│   ├── Device Info ............ Hardware stats (+ Easter Egg)
+│   ├── Device Info ............ Hardware stats
 │   ├── Set PIN ................ 4-digit lock PIN (optional)
 │   ├── CC1101 Module .......... Standard / E07 PA module toggle
 │   └── Back to Main Menu
@@ -954,8 +954,6 @@ Touch input automatically recalibrates after every rotation change. The selected
 #### Device Info
 
 Hardware information page showing: device name, firmware version, free heap, CPU frequency, flash size, and board type.
-
-**Easter Egg:** Tap "By: HaleHound" five times rapidly to reveal the PR #76 story.
 
 ---
 

