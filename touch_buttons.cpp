@@ -29,25 +29,73 @@ static uint16_t tftCalData[5] = {0};
 static bool _touchCalLoaded = false;
 static bool _touchFired = false;
 
-// Touch threshold for tft.getTouch() — XPT2046 Z pressure minimum
+// Touch threshold — XPT2046 Z pressure minimum
 // TFT_eSPI default is 600 but that's way too stiff for the E32R35T panel
 // 100 filters noise while allowing light taps
 static const uint16_t TFT_TOUCH_THRESHOLD = 100;
+
+// ═══ FAST TOUCH READ — bypasses TFT_eSPI's 5x validTouch loop ═══════════
+// TFT_eSPI getTouch() does 5 rounds of (Z loop + XY read + delays + XY read
+// + compare) = 25-40ms PER CALL. With 10+ calls per frame that's 250-400ms
+// of dead time where quick taps get missed completely.
+// This reads Z + XY once = ~2ms, then caches for the frame.
+// ═════════════════════════════════════════════════════════════════════════════
+
+static uint16_t _cacheTX = 0, _cacheTY = 0;
+static bool     _cacheValid = false;
+static uint32_t _cacheTime  = 0;
+
+// Single fast read: Z check -> XY read -> Z verify = ~2ms total
+static bool _fastReadTouch(uint16_t *x, uint16_t *y) {
+    uint16_t z = tft.getTouchRawZ();
+    if (z < TFT_TOUCH_THRESHOLD) return false;
+
+    uint16_t rawX, rawY;
+    tft.getTouchRaw(&rawX, &rawY);
+
+    // Verify still touching (reject lift-during-read)
+    if (tft.getTouchRawZ() < TFT_TOUCH_THRESHOLD) return false;
+
+    // Apply stored calibration transform
+    tft.convertRawXY(&rawX, &rawY);
+
+    if (rawX >= CYD_SCREEN_WIDTH || rawY >= CYD_SCREEN_HEIGHT) return false;
+
+    *x = rawX;
+    *y = rawY;
+    return true;
+}
+
+// Cached touch read — refreshes every 5ms, all callers share same result
+// First call in a frame = ~2ms SPI read.  Subsequent calls = instant cache hit.
+static bool _getCachedTouch(uint16_t *x, uint16_t *y) {
+    uint32_t now = millis();
+    if (now - _cacheTime >= 5) {
+        _cacheTime = now;
+        _cacheValid = _fastReadTouch(&_cacheTX, &_cacheTY);
+    }
+    if (_cacheValid) {
+        *x = _cacheTX;
+        *y = _cacheTY;
+    }
+    return _cacheValid;
+}
 
 void consumeTouch() {
     _touchFired = true;
 }
 
-// Block until finger lifts off XPT2046
+// Block until finger lifts off XPT2046 (uses fast Z-only check)
 void waitForTouchRelease() {
-    delay(30);
-    uint16_t tx, ty;
+    delay(10);
     uint32_t lastSeen = millis();
-    while (millis() - lastSeen < 80) {
-        if (tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) lastSeen = millis();
-        delay(10);
+    while (millis() - lastSeen < 50) {
+        if (tft.getTouchRawZ() >= TFT_TOUCH_THRESHOLD) lastSeen = millis();
+        delay(5);
     }
     _touchFired = false;
+    _cacheValid = false;  // Invalidate cache after release
+    _cacheTime  = 0;
 }
 #else
 // CYD28 resistive touch (software SPI) — needs calibration
@@ -350,7 +398,7 @@ void touchReinitSPI() {
 bool isTouched() {
 #ifdef CYD_35
     uint16_t tx, ty;
-    return tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD);
+    return _getCachedTouch(&tx, &ty);
 #else
     return touch.touched();
 #endif
@@ -360,8 +408,8 @@ bool isTouched() {
 // Use ONLY for long-press detection loops.
 bool isStillTouched() {
 #ifdef CYD_35
-    uint16_t tx, ty;
-    return tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD);
+    // Direct Z read — no cache, need real-time pressure for hold detection
+    return tft.getTouchRawZ() >= TFT_TOUCH_THRESHOLD;
 #else
     return touch.touched();
 #endif
@@ -373,8 +421,7 @@ bool isStillTouched() {
 bool peekTouchPoint(uint16_t *x, uint16_t *y) {
 #ifdef CYD_35
     uint16_t tx, ty;
-    if (!tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) {
-        // Finger lifted — reset edge-trigger so next getTouchPoint() fires
+    if (!_getCachedTouch(&tx, &ty)) {
         _touchFired = false;
         return false;
     }
@@ -388,10 +435,9 @@ bool peekTouchPoint(uint16_t *x, uint16_t *y) {
 
 bool getTouchPoint(uint16_t *x, uint16_t *y) {
 #ifdef CYD_35
-    // XPT2046 resistive = polled, no edge-trigger needed (same as 2.8")
-    // Debounce handled by callers (lastTap checks, delay(), etc.)
+    // Fast cached read — no 5x validation overhead
     uint16_t tx, ty;
-    if (!tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) return false;
+    if (!_getCachedTouch(&tx, &ty)) return false;
 
     *x = (uint16_t)constrain((int)tx, 0, CYD_SCREEN_WIDTH - 1);
     *y = (uint16_t)constrain((int)ty, 0, CYD_SCREEN_HEIGHT - 1);
@@ -434,7 +480,7 @@ ButtonID getTouchZone(uint16_t x, uint16_t y) {
 int getTouchX() {
 #ifdef CYD_35
     uint16_t tx, ty;
-    if (!tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) return -1;
+    if (!_getCachedTouch(&tx, &ty)) return -1;
     return constrain((int)tx, 0, CYD_SCREEN_WIDTH - 1);
 #else
     if (!touch.touched()) return -1;
@@ -450,7 +496,7 @@ int getTouchX() {
 int getTouchY() {
 #ifdef CYD_35
     uint16_t tx, ty;
-    if (!tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) return -1;
+    if (!_getCachedTouch(&tx, &ty)) return -1;
     return constrain((int)ty, 0, CYD_SCREEN_HEIGHT - 1);
 #else
     if (!touch.touched()) return -1;
@@ -466,7 +512,7 @@ int getTouchY() {
 int getTouchedMenuItem(int startY, int itemHeight, int itemCount) {
 #ifdef CYD_35
     uint16_t tx, ty;
-    if (!tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) return -1;
+    if (!_getCachedTouch(&tx, &ty)) return -1;
     int screenY = constrain((int)ty, 0, CYD_SCREEN_HEIGHT - 1);
 #else
     if (!touch.touched()) return -1;
@@ -504,11 +550,11 @@ void drawBackButton() {
 bool isBackButtonTapped() {
     static uint32_t lastTap = 0;
 
-    if (millis() - lastTap < 300) return false;
+    if (millis() - lastTap < 100) return false;
 
 #ifdef CYD_35
     uint16_t tx, ty;
-    if (!tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) return false;
+    if (!_getCachedTouch(&tx, &ty)) return false;
     int screenX = constrain((int)tx, 0, CYD_SCREEN_WIDTH - 1);
     int screenY = constrain((int)ty, 0, CYD_SCREEN_HEIGHT - 1);
 #else
@@ -536,11 +582,11 @@ bool isBackButtonTapped() {
 bool isTouchInArea(int x, int y, int w, int h) {
     static uint32_t lastTap = 0;
 
-    if (millis() - lastTap < 200) return false;
+    if (millis() - lastTap < 80) return false;
 
 #ifdef CYD_35
     uint16_t tx, ty;
-    if (!tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) return false;
+    if (!_getCachedTouch(&tx, &ty)) return false;
     int screenX = constrain((int)tx, 0, CYD_SCREEN_WIDTH - 1);
     int screenY = constrain((int)ty, 0, CYD_SCREEN_HEIGHT - 1);
 #else
@@ -750,7 +796,7 @@ bool isBackPressed() {
     if (millis() - lastBackTouch > 300) {
 #ifdef CYD_35
         uint16_t tx, ty;
-        if (tft.getTouch(&tx, &ty, TFT_TOUCH_THRESHOLD)) {
+        if (_getCachedTouch(&tx, &ty)) {
             int screenY = constrain((int)ty, 0, CYD_SCREEN_HEIGHT - 1);
             if (screenY > tft.height() - 40) {
                 lastBackTouch = millis();

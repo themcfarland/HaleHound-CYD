@@ -265,7 +265,7 @@
 // │  NRF24L01   │      │     CYD     │
 // │  +PA+LNA    │      │   ESP32     │
 // ├─────────────┤      ├─────────────┤
-// │ VCC ────────┼──────┤ 3.3V        │ (add 10uF cap if unstable!)
+// │ VCC ────────┼──────┤ 3.3V        │ (add 47uF cap if unstable!)
 // │ GND ────────┼──────┤ GND         │
 // │ SCK ────────┼──────┤ GPIO 18     │ (shared with CC1101)
 // │ MOSI ───────┼──────┤ GPIO 23     │ (shared with CC1101)
@@ -280,7 +280,7 @@
 // │ E01-2G4M27  │      │   E32R28T   │
 // │    SX       │      │   ESP32     │
 // ├─────────────┤      ├─────────────┤
-// │ VCC ────────┼──────┤ 3.3V        │ (add 10uF cap if unstable!)
+// │ VCC ────────┼──────┤ 3.3V        │ (add 47uF cap if unstable!)
 // │ GND ────────┼──────┤ GND         │
 // │ SCK ────────┼──────┤ GPIO 18     │ (shared VSPI)
 // │ MOSI ───────┼──────┤ GPIO 23     │ (shared VSPI)
@@ -295,7 +295,7 @@
 // │ E01-2G4M27  │      │   E32R35T   │
 // │    SX       │      │   ESP32     │
 // ├─────────────┤      ├─────────────┤
-// │ VCC ────────┼──────┤ 3.3V        │ (add 10uF cap if unstable!)
+// │ VCC ────────┼──────┤ 3.3V        │ (add 47uF cap if unstable!)
 // │ GND ────────┼──────┤ GND         │
 // │ SCK ────────┼──────┤ GPIO 18     │ (shared VSPI)
 // │ MOSI ───────┼──────┤ GPIO 23     │ (shared VSPI)
@@ -306,7 +306,7 @@
 // └─────────────┘      └─────────────┘
 //
 // NOTE: The +PA+LNA version needs clean 3.3V power!
-// Add a 10uF capacitor between VCC and GND at the module if you get
+// Add a 47uF capacitor between VCC and GND at the module if you get
 // communication errors or the module resets randomly.
 //
 // ═══════════════════════════════════════════════════════════════════════════
@@ -390,6 +390,17 @@
 #define GPS_RX_PIN       3    // P1 RX pin - ESP32 receives from GPS TX
 #define GPS_TX_PIN      -1    // Not used - GPS is receive-only
 #define GPS_BAUD      9600    // GT-U7 default baud rate
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HALEHOUND-ALPHA (C5 CO-PROCESSOR) LINK
+// ═══════════════════════════════════════════════════════════════════════════
+// C5 connects via same P1 UART pins (GPIO 3/1) at 460800 baud.
+// Auto-detected: gpsSetup() sends HLP_PING at 460800, if C5 responds
+// with HLP_PONG, GPS data arrives as HLP frames instead of raw NMEA.
+// If no C5, falls back to direct NMEA at 9600 (existing behavior).
+
+#define HLP_BAUD      460800  // HaleHound Link Protocol baud rate
+#define HLP_DETECT_TIMEOUT_MS  500  // Time to wait for C5 PONG response
 
 // ═══════════════════════════════════════════════════════════════════════════
 // UART SERIAL MONITOR
@@ -512,6 +523,7 @@
 #if defined(CYD_E32R28T) || defined(CYD_E32R35T)
   #define CYD_HAS_BATTERY     1     // TP4854 LiPo charge IC on board
   #define CYD_BATTERY_ADC    34     // Battery voltage ADC (input only)
+  #define CYD_BATTERY_DIVIDER_RATIO 2.0f  // On-board resistor divider (100K/100K)
   #define CYD_HAS_AMP         1     // SC8002B audio amp — GPIO 4 = shutdown
   // NOTE: SC8002B amp shutdown is handled by CC1101_TX_EN (GPIO 4)
   // PA init sets GPIO 4 LOW = amp off. Amp wakes briefly during CC1101 TX only.

@@ -50,6 +50,7 @@
 #include "loot_manager.h"
 #include "rfid_attacks.h"
 #include "jam_detect.h"
+#include "battery_monitor.h"
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GLOBAL OBJECTS
@@ -3807,7 +3808,7 @@ void handleButtons() {
                     displayMenu();
                 }
             }
-            delay(300);
+            delay(100);
         }
         return;
     }
@@ -3838,12 +3839,12 @@ void handleButtons() {
                 // Flash border to hotpink on tap
                 tft.drawRect(2, barY, SCREEN_WIDTH - 4, 20, HALEHOUND_HOTPINK);
                 tft.drawRect(4, barY + 2, SCREEN_WIDTH - 8, 16, HALEHOUND_HOTPINK);
-                delay(150);
+                delay(50);
                 activateValhalla();
                 // If cancelled, redraw menu
                 menu_initialized = false;
                 displayMenu();
-                delay(200);
+                delay(50);
                 return;
             }
         }
@@ -3869,7 +3870,7 @@ void handleButtons() {
                 current_menu_index = i;
                 last_interaction_time = millis();
                 displayMenu();
-                delay(150);
+                delay(50);
 
                 // Enter submenu
                 updateActiveSubmenu();
@@ -4322,6 +4323,13 @@ void setup() {
         }
     }
 
+    // Initialize battery monitor (ADC on GPIO 34)
+    // DISABLED — causes brownout on 3.5" CYD during jammer TX
+    // #if CYD_HAS_BATTERY
+    // batteryInit();
+    // Serial.println("[INIT] Battery monitor OK");
+    // #endif
+
     // Print system info
     Serial.printf("[INFO] Free Heap: %d\n", ESP.getFreeHeap());
     Serial.printf("[INFO] CPU Freq: %d MHz\n", ESP.getCpuFreqMHz());
@@ -4344,6 +4352,9 @@ void setup() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 void loop() {
+    // #if CYD_HAS_BATTERY
+    // batteryUpdate();
+    // #endif
     handleButtons();
     delay(20);
 }

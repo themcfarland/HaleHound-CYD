@@ -1601,15 +1601,11 @@ static void updateChannelHeat() {
     }
 }
 
+static bool wlanStandbyDrawn = false;
+
 static void drawJammerDisplay() {
     // Update heat levels first
     updateChannelHeat();
-
-    // Clear display area
-    tft.fillRect(JAM_GRAPH_X, JAM_GRAPH_Y, JAM_GRAPH_WIDTH, JAM_GRAPH_HEIGHT, TFT_BLACK);
-
-    // Draw frame
-    tft.drawRect(JAM_GRAPH_X - 1, JAM_GRAPH_Y - 1, JAM_GRAPH_WIDTH + 2, JAM_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
 
     int maxBarH = JAM_GRAPH_HEIGHT - 25;
 
@@ -1621,26 +1617,36 @@ static void drawJammerDisplay() {
         }
 
         if (!hasHeat) {
-            // Fully stopped - show standby bars
+            // Standby — only draw once, then skip
+            if (wlanStandbyDrawn) return;
+
+            tft.fillRect(JAM_GRAPH_X, JAM_GRAPH_Y, JAM_GRAPH_WIDTH, JAM_GRAPH_HEIGHT, TFT_BLACK);
+            tft.drawRect(JAM_GRAPH_X - 1, JAM_GRAPH_Y - 1, JAM_GRAPH_WIDTH + 2, JAM_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
+
             for (int i = 0; i < JAM_NUM_BARS; i++) {
                 int x = JAM_GRAPH_X + (i * JAM_GRAPH_WIDTH / JAM_NUM_BARS);
-                int barH = 8 + (i % 5) * 2;  // Slight variation
+                int barH = 8 + (i % 5) * 2;
                 int barY = JAM_GRAPH_Y + JAM_GRAPH_HEIGHT - barH - 10;
                 tft.drawFastVLine(x, barY, barH, HALEHOUND_GUNMETAL);
                 tft.drawFastVLine(x + 1, barY, barH, HALEHOUND_GUNMETAL);
             }
 
-            // Standby text
             tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
             tft.setTextSize(1);
             tft.setCursor(JAM_GRAPH_X + 85, JAM_GRAPH_Y + 5);
             tft.print("STANDBY");
 
-            // WiFi channel markers
             drawJammerWiFiMarkers();
+            wlanStandbyDrawn = true;
             return;
         }
     }
+
+    // Active or decaying — clear and redraw
+    wlanStandbyDrawn = false;
+
+    tft.fillRect(JAM_GRAPH_X, JAM_GRAPH_Y, JAM_GRAPH_WIDTH, JAM_GRAPH_HEIGHT, TFT_BLACK);
+    tft.drawRect(JAM_GRAPH_X - 1, JAM_GRAPH_Y - 1, JAM_GRAPH_WIDTH + 2, JAM_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
 
     // DRAW THE EQUALIZER - 85 skinny bars of FIRE!
     for (int i = 0; i < JAM_NUM_BARS; i++) {
@@ -1761,6 +1767,7 @@ static void drawJammerSkulls() {
 static void startJamming() {
     wlanJamChannel = currentWiFiChannel;
     wlanJamTaskDone = false;
+    wlanStandbyDrawn = false;
     jammerActive = true;
 
     wlanJamTaskRunning = true;
@@ -1915,6 +1922,8 @@ void cleanup() {
 
 namespace ProtoKill {
 
+static bool pkStandbyDrawn = false;
+
 enum OperationMode {
     BLE_MODULE,
     Bluetooth_MODULE,
@@ -2047,6 +2056,7 @@ static void pkStartJamming() {
     pkHitCount = 0;
     pkJamModeIndex = (int)currentMode;
     pkJamTaskDone = false;
+    pkStandbyDrawn = false;
     jammerActive = true;
 
     pkJamTaskRunning = true;
@@ -2284,12 +2294,6 @@ static void drawPkChannelMarkers() {
 static void drawPkEqualizer() {
     updatePkHeat();
 
-    // Clear display area
-    tft.fillRect(PK_GRAPH_X, PK_GRAPH_Y, PK_GRAPH_WIDTH, PK_GRAPH_HEIGHT, TFT_BLACK);
-
-    // Draw frame
-    tft.drawRect(PK_GRAPH_X - 1, PK_GRAPH_Y - 1, PK_GRAPH_WIDTH + 2, PK_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
-
     int maxBarH = PK_GRAPH_HEIGHT - 20;
 
     if (!jammerActive) {
@@ -2300,7 +2304,11 @@ static void drawPkEqualizer() {
         }
 
         if (!hasHeat) {
-            // Standby - show idle bars
+            if (pkStandbyDrawn) return;
+
+            tft.fillRect(PK_GRAPH_X, PK_GRAPH_Y, PK_GRAPH_WIDTH, PK_GRAPH_HEIGHT, TFT_BLACK);
+            tft.drawRect(PK_GRAPH_X - 1, PK_GRAPH_Y - 1, PK_GRAPH_WIDTH + 2, PK_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
+
             for (int i = 0; i < PK_NUM_BARS; i++) {
                 int x = PK_GRAPH_X + (i * PK_GRAPH_WIDTH / PK_NUM_BARS);
                 int barH = 6 + (i % 4) * 2;
@@ -2309,7 +2317,6 @@ static void drawPkEqualizer() {
                 tft.drawFastVLine(x + 1, barY, barH, HALEHOUND_GUNMETAL);
             }
 
-            // Standby text
             tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
             tft.setTextSize(2);
             tft.setCursor(PK_GRAPH_X + 65, PK_GRAPH_Y + 50);
@@ -2317,9 +2324,16 @@ static void drawPkEqualizer() {
             tft.setTextSize(1);
 
             drawPkChannelMarkers();
+            pkStandbyDrawn = true;
             return;
         }
     }
+
+    // Active or decaying — clear and redraw
+    pkStandbyDrawn = false;
+
+    tft.fillRect(PK_GRAPH_X, PK_GRAPH_Y, PK_GRAPH_WIDTH, PK_GRAPH_HEIGHT, TFT_BLACK);
+    tft.drawRect(PK_GRAPH_X - 1, PK_GRAPH_Y - 1, PK_GRAPH_WIDTH + 2, PK_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
 
     // DRAW THE EQUALIZER - 85 bars of FIRE!
     for (int i = 0; i < PK_NUM_BARS; i++) {
@@ -2558,7 +2572,7 @@ void prokillLoop() {
     // JAMMING ENGINE RUNS ON CORE 0 — display runs here on core 1
     // Full equalizer + stats at full speed, zero impact on jamming
     // ═══════════════════════════════════════════════════════════════════════
-    unsigned long displayInterval = jammerActive ? 80 : 30;
+    unsigned long displayInterval = jammerActive ? 80 : 200;  // Idle: 5fps (no flicker)
     if (millis() - pkLastUpdate >= displayInterval) {
         pkLastUpdate = millis();
         updatePkStats();

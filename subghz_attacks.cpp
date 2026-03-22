@@ -1711,15 +1711,11 @@ static void updateChannelHeat() {
     }
 }
 
+static bool sjStandbyDrawn = false;
+
 static void drawJammerDisplay() {
     // Update heat levels first
     updateChannelHeat();
-
-    // Clear display area
-    tft.fillRect(SJ_GRAPH_X, SJ_GRAPH_Y, SJ_GRAPH_WIDTH, SJ_GRAPH_HEIGHT, TFT_BLACK);
-
-    // Draw frame
-    tft.drawRect(SJ_GRAPH_X - 1, SJ_GRAPH_Y - 1, SJ_GRAPH_WIDTH + 2, SJ_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
 
     int maxBarH = SJ_GRAPH_HEIGHT - 25;
 
@@ -1731,26 +1727,35 @@ static void drawJammerDisplay() {
         }
 
         if (!hasHeat) {
-            // Fully stopped - show standby bars
+            if (sjStandbyDrawn) return;
+
+            tft.fillRect(SJ_GRAPH_X, SJ_GRAPH_Y, SJ_GRAPH_WIDTH, SJ_GRAPH_HEIGHT, TFT_BLACK);
+            tft.drawRect(SJ_GRAPH_X - 1, SJ_GRAPH_Y - 1, SJ_GRAPH_WIDTH + 2, SJ_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
+
             for (int i = 0; i < SJ_NUM_BARS; i++) {
                 int x = SJ_GRAPH_X + (i * SJ_GRAPH_WIDTH / SJ_NUM_BARS);
-                int barH = 8 + (i % 5) * 2;  // Slight variation
+                int barH = 8 + (i % 5) * 2;
                 int barY = SJ_GRAPH_Y + SJ_GRAPH_HEIGHT - barH - 10;
                 tft.drawFastVLine(x, barY, barH, HALEHOUND_GUNMETAL);
                 tft.drawFastVLine(x + 1, barY, barH, HALEHOUND_GUNMETAL);
             }
 
-            // Standby text
             tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
             tft.setTextSize(1);
             tft.setCursor(SJ_GRAPH_X + 85, SJ_GRAPH_Y + 5);
             tft.print("STANDBY");
 
-            // Frequency markers
             drawFreqMarkers();
+            sjStandbyDrawn = true;
             return;
         }
     }
+
+    // Active or decaying — clear and redraw
+    sjStandbyDrawn = false;
+
+    tft.fillRect(SJ_GRAPH_X, SJ_GRAPH_Y, SJ_GRAPH_WIDTH, SJ_GRAPH_HEIGHT, TFT_BLACK);
+    tft.drawRect(SJ_GRAPH_X - 1, SJ_GRAPH_Y - 1, SJ_GRAPH_WIDTH + 2, SJ_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
 
     // ═══════════════════════════════════════════════════════════════════════
     // DRAW THE EQUALIZER - 85 skinny bars of FIRE!
@@ -2156,6 +2161,7 @@ void start() {
         ELECHOUSE_cc1101.setMHZ(frequencyListMHz[currentFreqIndex]);
         cc1101PaSetTx();
         lastSweepTime = millis();
+        sjStandbyDrawn = false;
         jamming = true;
 
         startJamTask();  // Launch Core 0 TX engine

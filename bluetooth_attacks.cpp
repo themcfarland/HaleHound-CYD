@@ -5695,20 +5695,18 @@ static void bjUpdateStatus() {
 
 static void bjUpdateStats() {
     // Fast partial update - stats line only
+    // Use padded printf with background color to overwrite old text — NO fillRect flicker
     tft.setFreeFont(NULL);
     tft.setTextSize(1);
-    tft.fillRect(10, SCALE_Y(140), 60, 10, TFT_BLACK);
     tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
     tft.setCursor(10, SCALE_Y(140));
-    tft.printf("CH:%03d", currentNRFChannel);
-    tft.fillRect(SCALE_X(80), SCALE_Y(140), 80, 10, TFT_BLACK);
+    tft.printf("CH:%03d  ", currentNRFChannel);
     tft.setTextColor(jamming ? HALEHOUND_HOTPINK : HALEHOUND_VIOLET, TFT_BLACK);
     tft.setCursor(SCALE_X(80), SCALE_Y(140));
-    tft.printf("CH#:%d", bjModes[currentMode].count);
-    tft.fillRect(SCALE_X(170), SCALE_Y(140), 70, 10, TFT_BLACK);
+    tft.printf("CH#:%-3d ", bjModes[currentMode].count);
     tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
     tft.setCursor(SCALE_X(170), SCALE_Y(140));
-    tft.printf("HITS:%d", bjHitCount);
+    tft.printf("HITS:%-5d", bjHitCount);
 }
 
 // Forward declaration
@@ -5785,15 +5783,11 @@ static void updateChannelHeat() {
 // EQUALIZER DISPLAY (85 skinny bars - matches WLAN/SubGHz Jammer)
 // ═══════════════════════════════════════════════════════════════════════════
 
+static bool bjStandbyDrawn = false;  // Track if standby screen is already drawn
+
 static void drawJammerDisplay() {
     // Update heat levels first
     updateChannelHeat();
-
-    // Clear display area
-    tft.fillRect(BJ_GRAPH_X, BJ_GRAPH_Y, BJ_GRAPH_WIDTH, BJ_GRAPH_HEIGHT, TFT_BLACK);
-
-    // Draw frame
-    tft.drawRect(BJ_GRAPH_X - 1, BJ_GRAPH_Y - 1, BJ_GRAPH_WIDTH + 2, BJ_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
 
     int maxBarH = BJ_GRAPH_HEIGHT - 25;
 
@@ -5805,26 +5799,36 @@ static void drawJammerDisplay() {
         }
 
         if (!hasHeat) {
-            // Fully stopped - show standby bars
+            // Standby — only draw once, then skip until state changes
+            if (bjStandbyDrawn) return;
+
+            tft.fillRect(BJ_GRAPH_X, BJ_GRAPH_Y, BJ_GRAPH_WIDTH, BJ_GRAPH_HEIGHT, TFT_BLACK);
+            tft.drawRect(BJ_GRAPH_X - 1, BJ_GRAPH_Y - 1, BJ_GRAPH_WIDTH + 2, BJ_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
+
             for (int i = 0; i < BJ_NUM_BARS; i++) {
                 int x = BJ_GRAPH_X + (i * BJ_GRAPH_WIDTH / BJ_NUM_BARS);
-                int barH = 8 + (i % 5) * 2;  // Slight variation
+                int barH = 8 + (i % 5) * 2;
                 int barY = BJ_GRAPH_Y + BJ_GRAPH_HEIGHT - barH - 10;
                 tft.drawFastVLine(x, barY, barH, HALEHOUND_GUNMETAL);
                 tft.drawFastVLine(x + 1, barY, barH, HALEHOUND_GUNMETAL);
             }
 
-            // Standby text
             tft.setTextColor(HALEHOUND_GUNMETAL, TFT_BLACK);
             tft.setTextSize(1);
             tft.setCursor(BJ_GRAPH_X + 85, BJ_GRAPH_Y + 5);
             tft.print("STANDBY");
 
-            // ADV channel markers
             drawAdvMarkers();
+            bjStandbyDrawn = true;
             return;
         }
     }
+
+    // Active or decaying — clear and redraw
+    bjStandbyDrawn = false;
+
+    tft.fillRect(BJ_GRAPH_X, BJ_GRAPH_Y, BJ_GRAPH_WIDTH, BJ_GRAPH_HEIGHT, TFT_BLACK);
+    tft.drawRect(BJ_GRAPH_X - 1, BJ_GRAPH_Y - 1, BJ_GRAPH_WIDTH + 2, BJ_GRAPH_HEIGHT + 2, HALEHOUND_MAGENTA);
 
     // ═══════════════════════════════════════════════════════════════════════
     // DRAW THE EQUALIZER - 85 skinny bars of FIRE!
@@ -5992,6 +5996,7 @@ static void startJamming() {
     bjHitCount = 0;
     bjJamMode = currentMode;
     bjJamTaskDone = false;
+    bjStandbyDrawn = false;  // Force standby redraw when jamming stops
     jamming = true;
 
     // Launch jam task on core 0 — task handles ALL SPI/radio init on that core
@@ -6182,7 +6187,7 @@ void loop() {
     // Jammer runs on core 0 with its own SPI bus. Display doesn't affect it.
     // Equalizer, skulls, stats — everything runs at full speed.
     // ═══════════════════════════════════════════════════════════════════════
-    unsigned long displayInterval = jamming ? 80 : 30;
+    unsigned long displayInterval = jamming ? 80 : 200;  // Idle: 5fps (no flicker)
     if (millis() - lastDisplayTime >= displayInterval) {
         bjUpdateStats();
         drawJammerDisplay();

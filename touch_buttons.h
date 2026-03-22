@@ -62,9 +62,9 @@ struct ButtonEvent {
 // CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-#define TOUCH_DEBOUNCE_MS       120     // Minimum time between presses (bounce rejection handles the rest)
-#define TOUCH_HOLD_THRESHOLD_MS 400     // Time before press becomes hold (capacitive is faster)
-#define TOUCH_REPEAT_MS         150     // Repeat rate when holding
+#define TOUCH_DEBOUNCE_MS       40      // XPT2046 bounce is ~20ms, 40ms catches quick taps
+#define TOUCH_HOLD_THRESHOLD_MS 250     // Time before press becomes hold
+#define TOUCH_REPEAT_MS         80      // Repeat rate when holding (snappy scrolling)
 #define TOUCH_MIN_PRESSURE      400     // XPT2046 Z_THRESHOLD from library
 
 // ═══════════════════════════════════════════════════════════════════════════
