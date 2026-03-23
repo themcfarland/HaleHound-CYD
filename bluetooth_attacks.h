@@ -338,6 +338,28 @@ void cleanup();
 }  // namespace BleJammer
 
 // ═══════════════════════════════════════════════════════════════════════════
+// FLOCK YOU — Flock Safety Surveillance Camera Detector
+// Passively detects Flock Safety ALPR cameras, Raven gunshot detectors,
+// and associated infrastructure via BLE advertisement fingerprinting.
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace FlockYou {
+
+// Initialize detector and start scanning
+void setup();
+
+// Main loop function
+void loop();
+
+// Check if user requested exit
+bool isExitRequested();
+
+// Cleanup BLE resources and stop scan task
+void cleanup();
+
+}  // namespace FlockYou
+
+// ═══════════════════════════════════════════════════════════════════════════
 // BLE UTILITIES
 // ═══════════════════════════════════════════════════════════════════════════
 

@@ -24,6 +24,7 @@
 #include <SD.h>
 #include "spi_manager.h"
 #include "wp_loot_viewer.h"
+#include "gps_module.h"
 
 // ── Classic BT memory release ───────────────────────────────────────────
 // ESP32 Bluedroid reserves ~28KB for Classic BT by default.
@@ -12105,3 +12106,1272 @@ void cleanup() {
 }
 
 }  // namespace BlePredator
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FLOCK YOU — Flock Safety Surveillance Camera Detector
+// Passively detects Flock Safety ALPR cameras, Raven gunshot detectors,
+// and associated infrastructure via BLE advertisement fingerprinting.
+// Sources: colonelpanichacks/flock-you, zebadrabbit/flock-you-also,
+//          GainSec "Bird Hunting Season" (22 CVEs)
+// Created: 2026-03-23
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace FlockYou {
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+#define FY_MAX_DEVICES      24
+#define FY_SCAN_DURATION     3     // Seconds per scan cycle
+#define FY_UI_REFRESH_MS   250     // UI update throttle
+#define FY_MAX_VISIBLE       8     // Visible list rows on 320px screen
+#define FY_ALERT_DURATION 2000     // Alert flash duration (ms)
+#define FY_ICON_SIZE        16     // Bitmap icon dimension
+#define FY_LINE_HEIGHT      28     // Pixels per list row
+#define FY_LIST_START_Y     98     // Y start for device list (below stats)
+#define FY_RESCAN_DELAY    100     // ms yield between scan cycles
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEVICE TYPES AND MATCH FLAGS
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum FlockDevType : uint8_t {
+    FLOCK_EXT_BATT    = 0,   // FS External Battery (= camera power pack)
+    FLOCK_RAVEN       = 1,   // Raven gunshot detector (SoundThinking)
+    FLOCK_PENGUIN     = 2,   // Penguin (Raven variant)
+    FLOCK_WIFI_MOD    = 3,   // Flock WiFi module (WiFi OUI match)
+    FLOCK_PIGVISION   = 4,   // Pigvision sub-brand
+    FLOCK_MFR_MATCH   = 5,   // XUNTONG mfr ID only (unknown type)
+    FLOCK_SOUNDTHINK  = 6,   // SoundThinking/ShotSpotter acoustic sensor
+    FLOCK_DIRECT_REG  = 7,   // Flock Safety direct IEEE registration (B4:1E:52)
+};
+
+#define FY_MATCH_OUI   0x01
+#define FY_MATCH_NAME  0x02
+#define FY_MATCH_MFR   0x04
+#define FY_MATCH_SVC   0x08
+
+// Raven service bitmask
+#define FY_RAVEN_DEVINFO   0x01   // 0x180A
+#define FY_RAVEN_GPS       0x02   // 0x3100
+#define FY_RAVEN_POWER     0x04   // 0x3200
+#define FY_RAVEN_NETWORK   0x08   // 0x3300
+#define FY_RAVEN_UPLOAD    0x10   // 0x3400
+#define FY_RAVEN_FAILURE   0x20   // 0x3500
+#define FY_RAVEN_OLD_HLTH  0x40   // 0x1809 — legacy v1.1.x Health Thermometer
+#define FY_RAVEN_OLD_LOC   0x80   // 0x1819 — legacy v1.1.x Location & Navigation
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROGMEM OUI TABLES (verified from real hardware observations)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// BLE OUI prefixes — FS External Battery (10 entries, from colonelpanichacks/flock-you)
+static const uint8_t FY_BLE_OUI[][3] PROGMEM = {
+    {0xEC, 0x1B, 0xBD},   // 32.5% of observed
+    {0x58, 0x8E, 0x81},   // 23.9%
+    {0x90, 0x35, 0xEA},   // 14.8%
+    {0xCC, 0xCC, 0xCC},
+    {0xB4, 0xE3, 0xF9},
+    {0x04, 0x0D, 0x84},
+    {0xF0, 0x82, 0xC0},
+    {0x1C, 0x34, 0xF1},   // Added — from flock-you v2
+    {0x38, 0x5B, 0x44},   // Added — from flock-you v2
+    {0x94, 0x34, 0x69},   // Added — from flock-you v2
+};
+#define FY_BLE_OUI_COUNT 10
+
+// WiFi OUI prefixes — Flock WiFi AP Module (10 entries, from colonelpanichacks/flock-you)
+static const uint8_t FY_WIFI_OUI[][3] PROGMEM = {
+    {0xD8, 0xF3, 0xBC},   // Most common
+    {0x74, 0x4C, 0xA1},
+    {0x14, 0x5A, 0xFC},
+    {0xE4, 0xAA, 0xEA},
+    {0x3C, 0x91, 0x80},
+    {0x80, 0x30, 0x49},
+    {0x08, 0x3A, 0x88},
+    {0x70, 0xC9, 0x4E},   // Added — from flock-you v2
+    {0x9C, 0x2F, 0x9D},   // Added — from flock-you v2
+    {0x94, 0x08, 0x53},   // Added — from flock-you v2
+};
+#define FY_WIFI_OUI_COUNT 10
+
+// Flock Safety direct IEEE registration (1 entry)
+static const uint8_t FY_DIRECT_OUI[][3] PROGMEM = {
+    {0xB4, 0x1E, 0x52},   // Registered to Flock Safety in IEEE OUI database
+};
+#define FY_DIRECT_OUI_COUNT 1
+
+// SoundThinking/ShotSpotter OUI (1 entry — acoustic gunshot detection)
+static const uint8_t FY_SOUNDTHINK_OUI[][3] PROGMEM = {
+    {0xD4, 0x11, 0xD6},   // Registered to SoundThinking in IEEE OUI database
+};
+#define FY_SOUNDTHINK_OUI_COUNT 1
+
+// XUNTONG manufacturer company ID (Flock's hardware vendor)
+#define FY_MFR_XUNTONG 0x09C8
+
+// Raven GATT service UUIDs — firmware v1.2.x/v1.3.x
+static BLEUUID FY_UUID_DEVINFO((uint16_t)0x180A);
+static BLEUUID FY_UUID_GPS((uint16_t)0x3100);
+static BLEUUID FY_UUID_POWER((uint16_t)0x3200);
+static BLEUUID FY_UUID_NETWORK((uint16_t)0x3300);
+static BLEUUID FY_UUID_UPLOAD((uint16_t)0x3400);
+static BLEUUID FY_UUID_FAILURE((uint16_t)0x3500);
+// Raven GATT service UUIDs — legacy firmware v1.1.x
+static BLEUUID FY_UUID_OLD_HEALTH((uint16_t)0x1809);    // Health Thermometer (battery, temp)
+static BLEUUID FY_UUID_OLD_LOCATION((uint16_t)0x1819);  // Location and Navigation (GPS)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATA STRUCTURES
+// ═══════════════════════════════════════════════════════════════════════════
+
+struct FlockDevice {
+    uint8_t  mac[6];
+    int8_t   rssi;             // Current RSSI
+    int8_t   bestRssi;         // Strongest RSSI ever seen
+    uint8_t  type;             // FlockDevType
+    uint8_t  matchFlags;       // Bitmask: OUI|NAME|MFR|SVC
+    char     name[20];         // BLE advertised name (truncated)
+    uint32_t firstSeen;        // millis()
+    uint32_t lastSeen;         // millis()
+    uint8_t  ravenSvcMask;     // Bitmask of Raven GATT services seen
+    uint8_t  seenCount;        // Detections (capped 255)
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE VARIABLES (all static — no heap allocation)
+// ═══════════════════════════════════════════════════════════════════════════
+
+static FlockDevice fyDevices[FY_MAX_DEVICES];
+static volatile uint8_t fyDeviceCount = 0;
+static uint8_t  fySelectedIdx = 0;
+static uint8_t  fyScrollOffset = 0;
+static bool     fyDetailView = false;
+static bool     fyExitRequested = false;
+static bool     fyInitialized = false;
+static uint32_t fyScanStartTime = 0;
+static uint32_t fyLastUiUpdate = 0;
+static uint32_t fyTotalDetections = 0;
+static uint32_t fyTotalScans = 0;
+static bool     fyAlertActive = false;
+static uint32_t fyAlertTime = 0;
+static bool     fyScanPaused = false;
+static BLEScan* pFyScan = nullptr;
+
+// Dual-core scan task
+static TaskHandle_t fyScanTaskHandle = NULL;
+static volatile bool fyScanRunning = false;
+static volatile bool fyScanStop = false;
+
+// Animated dots for empty state
+static uint8_t fyDotCount = 0;
+static uint32_t fyDotTimer = 0;
+
+// Type color table
+static const uint16_t FY_TYPE_COLORS[] = {
+    0xF800,              // FLOCK_EXT_BATT  = RED
+    0xFD00,              // FLOCK_RAVEN     = ORANGE (0xFD00)
+    0xFD00,              // FLOCK_PENGUIN   = ORANGE
+    0xF81F,              // FLOCK_WIFI_MOD  = will use HALEHOUND_HOTPINK at runtime
+    0xFFFF,              // FLOCK_PIGVISION = will use HALEHOUND_BRIGHT at runtime
+    0xF81F,              // FLOCK_MFR_MATCH = will use HALEHOUND_MAGENTA at runtime
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+static uint16_t fyTypeColor(uint8_t type) {
+    switch (type) {
+        case FLOCK_EXT_BATT:   return 0xF800;               // RED
+        case FLOCK_RAVEN:      return 0xFD00;               // ORANGE
+        case FLOCK_PENGUIN:    return 0xFD00;               // ORANGE
+        case FLOCK_WIFI_MOD:   return HALEHOUND_HOTPINK;
+        case FLOCK_PIGVISION:  return HALEHOUND_BRIGHT;
+        case FLOCK_MFR_MATCH:  return HALEHOUND_MAGENTA;
+        case FLOCK_SOUNDTHINK: return 0x07FF;               // CYAN — distinct from Flock
+        case FLOCK_DIRECT_REG: return 0xF800;               // RED — same severity as battery
+        default:               return HALEHOUND_GUNMETAL;
+    }
+}
+
+static const char* fyTypeLabel(uint8_t type) {
+    switch (type) {
+        case FLOCK_EXT_BATT:   return "BAT";
+        case FLOCK_RAVEN:      return "RAV";
+        case FLOCK_PENGUIN:    return "PEN";
+        case FLOCK_WIFI_MOD:   return "WFI";
+        case FLOCK_PIGVISION:  return "PIG";
+        case FLOCK_MFR_MATCH:  return "XUN";
+        case FLOCK_SOUNDTHINK: return "SST";
+        case FLOCK_DIRECT_REG: return "FLK";
+        default:               return "UNK";
+    }
+}
+
+static const char* fyTypeName(uint8_t type) {
+    switch (type) {
+        case FLOCK_EXT_BATT:   return "FS EXT BATTERY";
+        case FLOCK_RAVEN:      return "RAVEN";
+        case FLOCK_PENGUIN:    return "PENGUIN";
+        case FLOCK_WIFI_MOD:   return "WIFI MODULE";
+        case FLOCK_PIGVISION:  return "PIGVISION";
+        case FLOCK_MFR_MATCH:  return "XUNTONG DEVICE";
+        case FLOCK_SOUNDTHINK: return "SHOTSPOTTER";
+        case FLOCK_DIRECT_REG: return "FLOCK SAFETY";
+        default:               return "UNKNOWN";
+    }
+}
+
+static const char* fyProximityStr(int8_t rssi) {
+    if (rssi >= -40) return "CLOSE";
+    if (rssi >= -60) return "NEAR";
+    if (rssi >= -75) return "MED";
+    if (rssi >= -90) return "FAR";
+    return "WEAK";
+}
+
+static uint16_t fyProximityColor(int8_t rssi) {
+    if (rssi >= -40) return 0xF800;            // RED — very close
+    if (rssi >= -60) return 0xFD00;            // ORANGE — near
+    if (rssi >= -75) return HALEHOUND_HOTPINK; // HOTPINK — medium
+    if (rssi >= -90) return HALEHOUND_MAGENTA; // MAGENTA — far
+    return HALEHOUND_GUNMETAL;                 // GUNMETAL — weak
+}
+
+static bool fyMatchOUI(const uint8_t* mac, const uint8_t ouiTable[][3], int count) {
+    for (int i = 0; i < count; i++) {
+        uint8_t oui[3];
+        memcpy_P(oui, ouiTable[i], 3);
+        if (mac[0] == oui[0] && mac[1] == oui[1] && mac[2] == oui[2]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Case-insensitive substring search
+static bool fyNameContains(const char* haystack, const char* needle) {
+    if (!haystack || !needle || needle[0] == '\0') return false;
+    int hLen = strlen(haystack);
+    int nLen = strlen(needle);
+    if (nLen > hLen) return false;
+    for (int i = 0; i <= hLen - nLen; i++) {
+        bool match = true;
+        for (int j = 0; j < nLen; j++) {
+            if (tolower((unsigned char)haystack[i + j]) != tolower((unsigned char)needle[j])) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
+static int fyFindDevice(const uint8_t* mac) {
+    for (int i = 0; i < fyDeviceCount; i++) {
+        if (memcmp(fyDevices[i].mac, mac, 6) == 0) return i;
+    }
+    return -1;
+}
+
+static void fyDrawRssiBar(int x, int y, int8_t rssi) {
+    // 6 segments, each 3px wide x 8px tall
+    int segments = 0;
+    if (rssi >= -40)      segments = 6;
+    else if (rssi >= -50) segments = 5;
+    else if (rssi >= -60) segments = 4;
+    else if (rssi >= -70) segments = 3;
+    else if (rssi >= -80) segments = 2;
+    else if (rssi >= -90) segments = 1;
+
+    for (int s = 0; s < 6; s++) {
+        uint16_t col = (s < segments) ? HALEHOUND_HOTPINK : HALEHOUND_GUNMETAL;
+        int barH = 3 + s;  // Bars get taller
+        tft.fillRect(x + s * 4, y + (8 - barH), 3, barH, col);
+    }
+}
+
+static const char* fyRavenFwEstimate(uint8_t svcMask) {
+    // Correct logic from colonelpanichacks/flock-you:
+    // Has 0x3100 (GPS) AND 0x3200 (Power) → v1.3.x
+    // Has 0x3100 (GPS) but NOT 0x3200 (Power) → v1.2.x
+    // Has 0x1819 (old Location) but NOT 0x3100 (new GPS) → v1.1.x
+    // Has 0x1809 (old Health) → v1.1.x
+    if ((svcMask & FY_RAVEN_GPS) && (svcMask & FY_RAVEN_POWER)) return "v1.3.x";
+    if (svcMask & FY_RAVEN_GPS) return "v1.2.x";
+    if (svcMask & (FY_RAVEN_OLD_LOC | FY_RAVEN_OLD_HLTH)) return "v1.1.x";
+    if (svcMask & FY_RAVEN_DEVINFO) return "v1.1.x";
+    return "unknown";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DETECTION ENGINE — called on Core 0 after each scan cycle
+// ═══════════════════════════════════════════════════════════════════════════
+
+static void fyProcessResults(BLEScanResults& results) {
+    bool foundNew = false;
+    int count = results.getCount();
+
+    for (int i = 0; i < count; i++) {
+        BLEAdvertisedDevice device = results.getDevice(i);
+
+        uint8_t mac[6];
+        memcpy(mac, *device.getAddress().getNative(), 6);
+
+        int8_t rssi = (int8_t)device.getRSSI();
+
+        uint8_t matchFlags = 0;
+        uint8_t devType = FLOCK_MFR_MATCH;
+        uint8_t ravenMask = 0;
+        char devName[20] = {0};
+
+        // Copy device name
+        if (device.haveName()) {
+            const char* n = device.getName().c_str();
+            strncpy(devName, n, 19);
+            devName[19] = '\0';
+        }
+
+        // ── 1. OUI CHECK (4 tables: BLE battery, WiFi AP, direct reg, SoundThinking) ──
+        if (fyMatchOUI(mac, FY_BLE_OUI, FY_BLE_OUI_COUNT)) {
+            matchFlags |= FY_MATCH_OUI;
+            devType = FLOCK_EXT_BATT;
+        }
+        else if (fyMatchOUI(mac, FY_WIFI_OUI, FY_WIFI_OUI_COUNT)) {
+            matchFlags |= FY_MATCH_OUI;
+            devType = FLOCK_WIFI_MOD;
+        }
+        else if (fyMatchOUI(mac, FY_DIRECT_OUI, FY_DIRECT_OUI_COUNT)) {
+            matchFlags |= FY_MATCH_OUI;
+            devType = FLOCK_DIRECT_REG;
+        }
+        else if (fyMatchOUI(mac, FY_SOUNDTHINK_OUI, FY_SOUNDTHINK_OUI_COUNT)) {
+            matchFlags |= FY_MATCH_OUI;
+            devType = FLOCK_SOUNDTHINK;
+        }
+
+        // ── 2. NAME CHECK (case-insensitive) ──
+        if (devName[0] != '\0') {
+            if (fyNameContains(devName, "FS Ext Battery")) {
+                matchFlags |= FY_MATCH_NAME;
+                devType = FLOCK_EXT_BATT;
+            }
+            else if (fyNameContains(devName, "Penguin")) {
+                matchFlags |= FY_MATCH_NAME;
+                devType = FLOCK_PENGUIN;
+            }
+            else if (fyNameContains(devName, "Pigvision")) {
+                matchFlags |= FY_MATCH_NAME;
+                devType = FLOCK_PIGVISION;
+            }
+            else if (fyNameContains(devName, "Flock")) {
+                matchFlags |= FY_MATCH_NAME;
+                if (devType == FLOCK_MFR_MATCH) devType = FLOCK_WIFI_MOD;
+            }
+        }
+
+        // ── 3. MANUFACTURER ID CHECK ──
+        if (device.haveManufacturerData()) {
+            std::string mfgData = device.getManufacturerData();
+            if (mfgData.length() >= 2) {
+                uint16_t companyId = (uint8_t)mfgData[0] | ((uint8_t)mfgData[1] << 8);
+                if (companyId == FY_MFR_XUNTONG) {
+                    matchFlags |= FY_MATCH_MFR;
+                }
+            }
+        }
+
+        // ── 4. SERVICE UUID CHECK (Raven GATT services) ──
+        if (device.haveServiceUUID()) {
+            for (int s = 0; s < device.getServiceUUIDCount(); s++) {
+                BLEUUID svcUUID = device.getServiceUUID(s);
+
+                if (svcUUID.equals(FY_UUID_DEVINFO)) {
+                    ravenMask |= FY_RAVEN_DEVINFO;
+                }
+                else if (svcUUID.equals(FY_UUID_GPS)) {
+                    ravenMask |= FY_RAVEN_GPS;
+                }
+                else if (svcUUID.equals(FY_UUID_POWER)) {
+                    ravenMask |= FY_RAVEN_POWER;
+                }
+                else if (svcUUID.equals(FY_UUID_NETWORK)) {
+                    ravenMask |= FY_RAVEN_NETWORK;
+                }
+                else if (svcUUID.equals(FY_UUID_UPLOAD)) {
+                    ravenMask |= FY_RAVEN_UPLOAD;
+                }
+                else if (svcUUID.equals(FY_UUID_FAILURE)) {
+                    ravenMask |= FY_RAVEN_FAILURE;
+                }
+                // Legacy v1.1.x Raven service UUIDs
+                else if (svcUUID.equals(FY_UUID_OLD_HEALTH)) {
+                    ravenMask |= FY_RAVEN_OLD_HLTH;
+                }
+                else if (svcUUID.equals(FY_UUID_OLD_LOCATION)) {
+                    ravenMask |= FY_RAVEN_OLD_LOC;
+                }
+            }
+
+            if (ravenMask & (FY_RAVEN_GPS | FY_RAVEN_POWER | FY_RAVEN_NETWORK |
+                             FY_RAVEN_UPLOAD | FY_RAVEN_FAILURE |
+                             FY_RAVEN_OLD_HLTH | FY_RAVEN_OLD_LOC)) {
+                matchFlags |= FY_MATCH_SVC;
+                // Penguin name takes priority, otherwise Raven
+                if (devType != FLOCK_PENGUIN) devType = FLOCK_RAVEN;
+            }
+        }
+
+        // ── 5. SKIP if no match ──
+        if (matchFlags == 0) continue;
+
+        // ── 6. ADD OR UPDATE DEVICE ──
+        int existIdx = fyFindDevice(mac);
+        if (existIdx >= 0) {
+            // Update existing
+            FlockDevice& d = fyDevices[existIdx];
+            d.rssi = rssi;
+            if (rssi > d.bestRssi) d.bestRssi = rssi;
+            d.lastSeen = millis();
+            if (d.seenCount < 255) d.seenCount++;
+            d.ravenSvcMask |= ravenMask;
+            d.matchFlags |= matchFlags;
+            // Upgrade type if we now have more info
+            if (devType == FLOCK_RAVEN || devType == FLOCK_PENGUIN) d.type = devType;
+            // Update name if we got one and didn't have one
+            if (devName[0] != '\0' && d.name[0] == '\0') {
+                strncpy(d.name, devName, 19);
+                d.name[19] = '\0';
+            }
+        }
+        else if (fyDeviceCount < FY_MAX_DEVICES) {
+            // New device
+            FlockDevice& d = fyDevices[fyDeviceCount];
+            memcpy(d.mac, mac, 6);
+            d.rssi = rssi;
+            d.bestRssi = rssi;
+            d.type = devType;
+            d.matchFlags = matchFlags;
+            strncpy(d.name, devName, 19);
+            d.name[19] = '\0';
+            d.firstSeen = millis();
+            d.lastSeen = millis();
+            d.ravenSvcMask = ravenMask;
+            d.seenCount = 1;
+            fyDeviceCount++;
+            foundNew = true;
+
+            Serial.printf("[FLOCK] NEW: %s %02X:%02X:%02X:%02X:%02X:%02X %ddBm\n",
+                          fyTypeName(devType), mac[0], mac[1], mac[2],
+                          mac[3], mac[4], mac[5], rssi);
+        }
+
+        fyTotalDetections++;
+    }
+
+    if (foundNew) {
+        fyAlertActive = true;
+        fyAlertTime = millis();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DUAL-CORE SCAN TASK (Core 0)
+// ═══════════════════════════════════════════════════════════════════════════
+
+static void fyScanTask(void* param) {
+    fyScanRunning = true;
+    while (!fyScanStop) {
+        BLEScanResults results = pFyScan->start(FY_SCAN_DURATION, false);
+        fyProcessResults(results);
+        pFyScan->clearResults();
+        fyTotalScans++;
+        vTaskDelay(pdMS_TO_TICKS(FY_RESCAN_DELAY));
+    }
+    fyScanRunning = false;
+    vTaskDelete(NULL);
+}
+
+static void fyStartScanTask() {
+    if (fyScanTaskHandle) return;
+    fyScanStop = false;
+    xTaskCreatePinnedToCore(fyScanTask, "fyFlockScan", 4096, NULL, 1, &fyScanTaskHandle, 0);
+    Serial.println("[FLOCK] Scan task started on Core 0");
+}
+
+static void fyStopScanTask() {
+    fyScanStop = true;
+    if (!fyScanTaskHandle) return;
+    unsigned long t = millis();
+    while (fyScanRunning && (millis() - t < 500)) delay(10);
+    if (fyScanRunning) vTaskDelete(fyScanTaskHandle);
+    fyScanTaskHandle = NULL;
+    Serial.println("[FLOCK] Scan task stopped");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI DRAWING FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+static void fyDrawIconBar() {
+    tft.drawLine(0, 19, SCREEN_WIDTH, 19, HALEHOUND_MAGENTA);
+    tft.fillRect(0, 20, SCREEN_WIDTH, 16, HALEHOUND_GUNMETAL);
+    // Back arrow (left)
+    tft.drawBitmap(10, 20, bitmap_icon_go_back, FY_ICON_SIZE, FY_ICON_SIZE, HALEHOUND_MAGENTA);
+    // BLE skull (center)
+    tft.drawBitmap(112, 20, bitmap_icon_skull_bluetooth, FY_ICON_SIZE, FY_ICON_SIZE, HALEHOUND_HOTPINK);
+    // Scanner/refresh (right)
+    tft.drawBitmap(214, 20, bitmap_icon_scanner, FY_ICON_SIZE, FY_ICON_SIZE, HALEHOUND_MAGENTA);
+    tft.drawLine(0, 36, SCREEN_WIDTH, 36, HALEHOUND_HOTPINK);
+}
+
+static void fyDrawTitle() {
+    tft.drawLine(0, 38, SCREEN_WIDTH, 38, HALEHOUND_HOTPINK);
+    drawGlitchTitle(SCALE_Y(14), "FLOCK YOU");
+    tft.drawLine(0, 56, SCREEN_WIDTH, 56, HALEHOUND_HOTPINK);
+}
+
+static void fyDrawStatus() {
+    tft.fillRect(0, 57, SCREEN_WIDTH, 14, HALEHOUND_BLACK);
+
+    if (!fyScanPaused && fyScanRunning) {
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_MAGENTA);
+        tft.setCursor(5, 60);
+        tft.print(">> SCANNING <<");
+
+        // Pulsing LIVE dot (500ms toggle)
+        bool dotOn = ((millis() / 500) % 2 == 0);
+        if (dotOn) {
+            tft.fillCircle(SCREEN_WIDTH - 20, 63, 3, HALEHOUND_HOTPINK);
+        }
+        tft.setTextColor(HALEHOUND_HOTPINK);
+        tft.setCursor(SCREEN_WIDTH - 42, 60);
+        tft.print("LIVE");
+    } else {
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_GUNMETAL);
+        tft.setCursor(5, 60);
+        tft.print(">> STOPPED <<");
+    }
+}
+
+static void fyDrawStats() {
+    tft.fillRect(0, 72, SCREEN_WIDTH, 14, HALEHOUND_BLACK);
+    tft.setTextSize(1);
+    tft.setTextColor(HALEHOUND_MAGENTA);
+
+    // Elapsed time
+    String elapsed = getElapsedTimeString(fyScanStartTime);
+    tft.setCursor(5, 75);
+    tft.printf("T:%s", elapsed.c_str());
+
+    // Device count
+    tft.setCursor(95, 75);
+    tft.printf("D:%d", fyDeviceCount);
+
+    // Scan count
+    tft.setCursor(155, 75);
+    tft.printf("S:%lu", (unsigned long)fyTotalScans);
+
+    tft.drawLine(0, 87, SCREEN_WIDTH, 87, HALEHOUND_GUNMETAL);
+}
+
+static void fyDrawDeviceList() {
+    // Clear list area (below stats, above buttons)
+    tft.fillRect(0, 88, SCREEN_WIDTH, SCREEN_HEIGHT - 88 - 30, HALEHOUND_BLACK);
+
+    if (fyDeviceCount == 0) {
+        // Empty state with animated dots
+        tft.setTextSize(1);
+        tft.setTextColor(HALEHOUND_GUNMETAL);
+        int cy = 140;
+        tft.setCursor(15, cy);
+        tft.print("Scanning for Flock cameras");
+        // Animated dots
+        for (int d = 0; d < fyDotCount; d++) {
+            tft.print(".");
+        }
+        tft.setCursor(10, cy + 20);
+        tft.setTextColor(HALEHOUND_GUNMETAL);
+        tft.print("Drive near surveillance to");
+        tft.setCursor(10, cy + 32);
+        tft.print("detect them");
+        return;
+    }
+
+    int y = 90;
+    int visibleCount = (fyDeviceCount - fyScrollOffset);
+    if (visibleCount > FY_MAX_VISIBLE) visibleCount = FY_MAX_VISIBLE;
+
+    for (int i = 0; i < visibleCount; i++) {
+        int idx = i + fyScrollOffset;
+        if (idx >= fyDeviceCount) break;
+        FlockDevice& d = fyDevices[idx];
+
+        // Selected highlight
+        if (idx == fySelectedIdx) {
+            tft.fillRect(0, y - 1, SCREEN_WIDTH, FY_LINE_HEIGHT, HALEHOUND_MAGENTA);
+        }
+
+        // Type color block
+        uint16_t typeCol = fyTypeColor(d.type);
+        tft.fillRect(2, y + 2, 3, FY_LINE_HEIGHT - 6, typeCol);
+
+        // Type label
+        uint16_t textCol = (idx == fySelectedIdx) ? HALEHOUND_BLACK : typeCol;
+        tft.setTextSize(1);
+        tft.setTextColor(textCol);
+        tft.setCursor(8, y + 4);
+        tft.print(fyTypeLabel(d.type));
+
+        // MAC (last 4 octets)
+        textCol = (idx == fySelectedIdx) ? HALEHOUND_BLACK : HALEHOUND_HOTPINK;
+        tft.setTextColor(textCol);
+        tft.setCursor(32, y + 4);
+        char shortMac[12];
+        snprintf(shortMac, sizeof(shortMac), "%02X:%02X:%02X:%02X",
+                 d.mac[2], d.mac[3], d.mac[4], d.mac[5]);
+        tft.print(shortMac);
+
+        // RSSI
+        textCol = (idx == fySelectedIdx) ? HALEHOUND_BLACK : HALEHOUND_VIOLET;
+        tft.setTextColor(textCol);
+        tft.setCursor(110, y + 4);
+        tft.printf("%d", d.rssi);
+
+        // Signal bar
+        fyDrawRssiBar(140, y + 4, d.rssi);
+
+        // Proximity label
+        textCol = (idx == fySelectedIdx) ? HALEHOUND_BLACK : fyProximityColor(d.rssi);
+        tft.setTextColor(textCol);
+        tft.setCursor(168, y + 4);
+        tft.print(fyProximityStr(d.rssi));
+
+        // New device indicator
+        if (d.seenCount <= 3) {
+            uint16_t dotCol = (idx == fySelectedIdx) ? HALEHOUND_BLACK : HALEHOUND_HOTPINK;
+            tft.fillCircle(SCREEN_WIDTH - 8, y + FY_LINE_HEIGHT / 2, 3, dotCol);
+        }
+
+        y += FY_LINE_HEIGHT;
+    }
+
+    // Scroll indicator
+    if (fyDeviceCount > FY_MAX_VISIBLE) {
+        tft.setTextColor(HALEHOUND_GUNMETAL);
+        tft.setTextSize(1);
+        tft.setCursor(SCREEN_WIDTH - 30, 90);
+        tft.printf("%d/%d", fyScrollOffset + 1, fyDeviceCount);
+    }
+}
+
+static void fyDrawDetail() {
+    tft.fillRect(0, 38, SCREEN_WIDTH, SCREEN_HEIGHT - 38, HALEHOUND_BLACK);
+
+    if (fySelectedIdx >= fyDeviceCount) return;
+    FlockDevice& d = fyDevices[fySelectedIdx];
+
+    int y = 42;
+
+    // Device type in large text
+    tft.setTextSize(2);
+    tft.setTextColor(fyTypeColor(d.type));
+    tft.setCursor(10, y);
+    tft.print(fyTypeName(d.type));
+    y += 24;
+
+    tft.setTextSize(1);
+
+    // Full MAC
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.setCursor(10, y);
+    tft.print("MAC: ");
+    tft.setTextColor(HALEHOUND_HOTPINK);
+    tft.printf("%02X:%02X:%02X:%02X:%02X:%02X",
+               d.mac[0], d.mac[1], d.mac[2], d.mac[3], d.mac[4], d.mac[5]);
+    y += 14;
+
+    // Name
+    if (d.name[0] != '\0') {
+        tft.setTextColor(HALEHOUND_MAGENTA);
+        tft.setCursor(10, y);
+        tft.print("Name: ");
+        tft.setTextColor(HALEHOUND_BRIGHT);
+        tft.print(d.name);
+        y += 14;
+    }
+
+    // RSSI
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.setCursor(10, y);
+    tft.print("RSSI: ");
+    tft.setTextColor(HALEHOUND_BRIGHT);
+    tft.printf("%d dBm  Best: %d dBm", d.rssi, d.bestRssi);
+    y += 14;
+
+    // Proximity bar
+    int barWidth = map(constrain(d.rssi, -100, -30), -100, -30, 5, 200);
+    tft.fillRect(10, y, barWidth, 8, fyProximityColor(d.rssi));
+    tft.drawRect(10, y, 200, 8, HALEHOUND_VIOLET);
+    y += 16;
+
+    // Evidence section
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.setCursor(10, y);
+    tft.print("Evidence:");
+    y += 12;
+
+    tft.setTextColor(HALEHOUND_BRIGHT);
+    tft.setCursor(14, y);
+    if (d.matchFlags & FY_MATCH_OUI)  tft.print("[OUI] ");
+    if (d.matchFlags & FY_MATCH_NAME) tft.print("[NAME] ");
+    if (d.matchFlags & FY_MATCH_MFR)  tft.print("[MFR] ");
+    if (d.matchFlags & FY_MATCH_SVC)  tft.print("[SVC] ");
+    y += 14;
+
+    // Raven services (if applicable)
+    if (d.ravenSvcMask) {
+        tft.setTextColor(HALEHOUND_MAGENTA);
+        tft.setCursor(10, y);
+        tft.print("Raven Services:");
+        y += 12;
+
+        tft.setTextColor(HALEHOUND_VIOLET);
+        tft.setCursor(14, y);
+        if (d.ravenSvcMask & FY_RAVEN_DEVINFO)  tft.print("DevInfo ");
+        if (d.ravenSvcMask & FY_RAVEN_GPS)      tft.print("GPS ");
+        if (d.ravenSvcMask & FY_RAVEN_POWER)    tft.print("Power ");
+        if (d.ravenSvcMask & FY_RAVEN_NETWORK)  tft.print("Net ");
+        if (d.ravenSvcMask & FY_RAVEN_UPLOAD)   tft.print("Upload ");
+        if (d.ravenSvcMask & FY_RAVEN_FAILURE)  tft.print("Fail ");
+        if (d.ravenSvcMask & FY_RAVEN_OLD_HLTH) tft.print("Hlth* ");
+        if (d.ravenSvcMask & FY_RAVEN_OLD_LOC)  tft.print("Loc* ");
+        y += 12;
+
+        tft.setCursor(14, y);
+        tft.setTextColor(HALEHOUND_BRIGHT);
+        tft.printf("FW est: %s", fyRavenFwEstimate(d.ravenSvcMask));
+        y += 14;
+    }
+
+    // Timing
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.setCursor(10, y);
+    tft.print("First: ");
+    tft.setTextColor(HALEHOUND_BRIGHT);
+    unsigned long firstElapsed = (millis() - d.firstSeen) / 1000;
+    if (firstElapsed < 60) tft.printf("%lus ago", firstElapsed);
+    else tft.printf("%lum %lus ago", firstElapsed / 60, firstElapsed % 60);
+    y += 12;
+
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.setCursor(10, y);
+    tft.print("Last: ");
+    tft.setTextColor(HALEHOUND_BRIGHT);
+    unsigned long lastElapsed = (millis() - d.lastSeen) / 1000;
+    tft.printf("%lus ago", lastElapsed);
+    y += 12;
+
+    tft.setCursor(10, y);
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.print("Count: ");
+    tft.setTextColor(HALEHOUND_BRIGHT);
+    tft.printf("%d", d.seenCount);
+    y += 18;
+
+    // BACK button
+    int btnY = SCREEN_HEIGHT - 28;
+    tft.drawRect(80, btnY, 80, 24, HALEHOUND_HOTPINK);
+    tft.drawRect(81, btnY + 1, 78, 22, HALEHOUND_HOTPINK);
+    tft.setTextColor(HALEHOUND_HOTPINK);
+    tft.setCursor(104, btnY + 8);
+    tft.print("BACK");
+}
+
+static void fyDrawAlert() {
+    if (!fyAlertActive) return;
+    if (millis() - fyAlertTime > FY_ALERT_DURATION) {
+        fyAlertActive = false;
+        return;
+    }
+
+    // Pulse RED border 3x (200ms on/off each = ~1200ms of 2000ms alert)
+    unsigned long phase = millis() - fyAlertTime;
+    bool on = (phase / 200) % 2 == 0;
+
+    if (on && phase < 1200) {
+        tft.drawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0xF800);
+        tft.drawRect(1, 1, SCREEN_WIDTH - 2, SCREEN_HEIGHT - 2, 0xF800);
+    }
+}
+
+static void fyDrawBottomButtons() {
+    int btnY = SCREEN_HEIGHT - 28;
+    int btnW = 60;
+    int btnH = 24;
+
+    // Clear button area
+    tft.fillRect(0, btnY - 2, SCREEN_WIDTH, 30, HALEHOUND_BLACK);
+
+    // STOP/START button (left)
+    tft.drawRect(10, btnY, btnW, btnH, HALEHOUND_HOTPINK);
+    tft.drawRect(11, btnY + 1, btnW - 2, btnH - 2, HALEHOUND_HOTPINK);
+    tft.setTextSize(1);
+    tft.setTextColor(HALEHOUND_HOTPINK);
+    tft.setCursor(17, btnY + 8);
+    tft.print(fyScanPaused ? "START" : "STOP");
+
+    // SAVE button (center)
+    tft.drawRect(90, btnY, btnW, btnH, HALEHOUND_HOTPINK);
+    tft.drawRect(91, btnY + 1, btnW - 2, btnH - 2, HALEHOUND_HOTPINK);
+    tft.setTextColor(HALEHOUND_HOTPINK);
+    tft.setCursor(103, btnY + 8);
+    tft.print("SAVE");
+
+    // BACK button (right)
+    tft.drawRect(170, btnY, btnW, btnH, HALEHOUND_HOTPINK);
+    tft.drawRect(171, btnY + 1, btnW - 2, btnH - 2, HALEHOUND_HOTPINK);
+    tft.setTextColor(HALEHOUND_HOTPINK);
+    tft.setCursor(183, btnY + 8);
+    tft.print("BACK");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SD CARD SAVE
+// ═══════════════════════════════════════════════════════════════════════════
+
+static void fySetStatus(const char* msg, uint16_t color) {
+    tft.fillRect(0, 57, SCREEN_WIDTH, 14, HALEHOUND_BLACK);
+    tft.setTextSize(1);
+    tft.setTextColor(color);
+    tft.setCursor(5, 60);
+    tft.print(msg);
+}
+
+static void fySaveLoot() {
+    if (fyDeviceCount == 0) {
+        fySetStatus("No devices to save!", HALEHOUND_GUNMETAL);
+        delay(1000);
+        return;
+    }
+
+    fySetStatus("Saving to SD...", HALEHOUND_MAGENTA);
+
+    // Stop scan task while using SPI
+    bool wasRunning = fyScanRunning;
+    if (wasRunning) fyStopScanTask();
+
+    // Deinit BLE before SPI takeover
+    if (pFyScan) pFyScan->stop();
+    BLEDevice::deinit(false);
+
+    // Init SD card (same pattern as BlePredator)
+    SPI.end();
+    delay(10);
+    SPI.begin(18, 19, 23);
+    pinMode(SD_CS, OUTPUT);
+    digitalWrite(SD_CS, HIGH);
+    delay(10);
+
+    if (!SD.begin(SD_CS, SPI, 4000000)) {
+        SPI.end();
+        delay(50);
+        SPI.begin(18, 19, 23);
+        if (!SD.begin(SD_CS, SPI, 4000000)) {
+            fySetStatus("SD card not found!", 0xF800);
+            SD.end();
+            // Re-init BLE
+            releaseClassicBtMemory();
+            BLEDevice::init("");
+            delay(150);
+            pFyScan = BLEDevice::getScan();
+            if (pFyScan) {
+                pFyScan->setActiveScan(true);
+                pFyScan->setInterval(100);
+                pFyScan->setWindow(99);
+            }
+            if (wasRunning) fyStartScanTask();
+            delay(1000);
+            return;
+        }
+    }
+
+    if (!SD.exists("/loot")) {
+        SD.mkdir("/loot");
+    }
+
+    char fname[48];
+    snprintf(fname, sizeof(fname), "/loot/flock_%lu.txt", millis());
+
+    File f = SD.open(fname, FILE_WRITE);
+    if (!f) {
+        fySetStatus("File write failed!", 0xF800);
+        SD.end();
+        releaseClassicBtMemory();
+        BLEDevice::init("");
+        delay(150);
+        pFyScan = BLEDevice::getScan();
+        if (pFyScan) {
+            pFyScan->setActiveScan(true);
+            pFyScan->setInterval(100);
+            pFyScan->setWindow(99);
+        }
+        if (wasRunning) fyStartScanTask();
+        delay(1000);
+        return;
+    }
+
+    // Write header
+    f.println("========================================");
+    f.println("  FLOCK YOU - Surveillance Camera Log");
+    f.println("  HaleHound Edition");
+    f.println("========================================");
+    f.println();
+
+    String elapsed = getElapsedTimeString(fyScanStartTime);
+    f.printf("Scan Duration: %s\n", elapsed.c_str());
+    f.printf("Total Scans: %lu\n", (unsigned long)fyTotalScans);
+    f.printf("Devices Found: %d\n", fyDeviceCount);
+
+    // GPS coordinates if available
+    if (gpsHasFix()) {
+        GPSData gd = gpsGetData();
+        f.printf("GPS: %.6f, %.6f\n", gd.latitude, gd.longitude);
+    } else {
+        f.println("GPS: No Fix");
+    }
+
+    f.println();
+    f.println("--- DETECTIONS ---");
+
+    for (int i = 0; i < fyDeviceCount; i++) {
+        FlockDevice& d = fyDevices[i];
+        f.println();
+        f.printf("[%d] %s\n", i + 1, fyTypeName(d.type));
+        f.printf("    MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                 d.mac[0], d.mac[1], d.mac[2], d.mac[3], d.mac[4], d.mac[5]);
+        if (d.name[0] != '\0') {
+            f.printf("    Name: \"%s\"\n", d.name);
+        }
+        f.printf("    RSSI: %d dBm (best: %d dBm)\n", d.rssi, d.bestRssi);
+
+        f.printf("    Evidence:");
+        if (d.matchFlags & FY_MATCH_OUI)  f.print(" OUI");
+        if (d.matchFlags & FY_MATCH_NAME) f.print(" NAME");
+        if (d.matchFlags & FY_MATCH_MFR)  f.print(" MFR_ID");
+        if (d.matchFlags & FY_MATCH_SVC)  f.print(" SVC_UUID");
+        f.println();
+
+        if (d.ravenSvcMask) {
+            f.printf("    Services:");
+            if (d.ravenSvcMask & FY_RAVEN_DEVINFO)  f.print(" DevInfo");
+            if (d.ravenSvcMask & FY_RAVEN_GPS)      f.print(" GPS");
+            if (d.ravenSvcMask & FY_RAVEN_POWER)    f.print(" Power");
+            if (d.ravenSvcMask & FY_RAVEN_NETWORK)  f.print(" Network");
+            if (d.ravenSvcMask & FY_RAVEN_UPLOAD)   f.print(" Upload");
+            if (d.ravenSvcMask & FY_RAVEN_FAILURE)  f.print(" Failure");
+            if (d.ravenSvcMask & FY_RAVEN_OLD_HLTH) f.print(" Health(v1.1)");
+            if (d.ravenSvcMask & FY_RAVEN_OLD_LOC)  f.print(" Location(v1.1)");
+            f.println();
+            f.printf("    FW Estimate: %s\n", fyRavenFwEstimate(d.ravenSvcMask));
+        }
+
+        unsigned long firstEl = (millis() - d.firstSeen) / 1000;
+        unsigned long lastEl  = (millis() - d.lastSeen) / 1000;
+        f.printf("    First: %02lu:%02lu:%02lu  Last: %02lu:%02lu:%02lu  Count: %d\n",
+                 firstEl / 3600, (firstEl % 3600) / 60, firstEl % 60,
+                 lastEl / 3600, (lastEl % 3600) / 60, lastEl % 60,
+                 d.seenCount);
+    }
+
+    f.close();
+    SD.end();
+
+    char statusBuf[48];
+    snprintf(statusBuf, sizeof(statusBuf), "Saved: %s", fname);
+    fySetStatus(statusBuf, HALEHOUND_GREEN);
+
+    // Re-init BLE
+    releaseClassicBtMemory();
+    BLEDevice::init("");
+    delay(150);
+    pFyScan = BLEDevice::getScan();
+    if (pFyScan) {
+        pFyScan->setActiveScan(true);
+        pFyScan->setInterval(100);
+        pFyScan->setWindow(99);
+    }
+    if (wasRunning) fyStartScanTask();
+
+    delay(1500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TOUCH HANDLING
+// ═══════════════════════════════════════════════════════════════════════════
+
+static void fyHandleTouch() {
+    static unsigned long lastTap = 0;
+    if (millis() - lastTap < 200) return;
+
+    uint16_t tx, ty;
+    if (!getTouchPoint(&tx, &ty)) return;
+    lastTap = millis();
+
+    // ── Detail view: BACK button ──
+    if (fyDetailView) {
+        int btnY = SCREEN_HEIGHT - 28;
+        if (ty >= btnY && ty <= btnY + 24 && tx >= 80 && tx <= 160) {
+            fyDetailView = false;
+            fyDrawStats();
+            fyDrawDeviceList();
+            fyDrawBottomButtons();
+        }
+        return;
+    }
+
+    // ── Icon bar (y 20-36) ──
+    if (ty >= 20 && ty <= 36) {
+        if (tx >= 0 && tx < 40) {
+            // Back arrow — exit
+            fyExitRequested = true;
+            return;
+        }
+        if (tx >= 200 && tx <= 240) {
+            // Refresh — force rescan (handled by task, just visual feedback)
+            fySetStatus(">> RESCANNING <<", HALEHOUND_HOTPINK);
+            return;
+        }
+    }
+
+    // ── Bottom buttons (y = SCREEN_HEIGHT-28 to SCREEN_HEIGHT-4) ──
+    int btnY = SCREEN_HEIGHT - 28;
+    if (ty >= btnY && ty <= btnY + 24) {
+        // STOP/START (left: x 10-70)
+        if (tx >= 10 && tx <= 70) {
+            fyScanPaused = !fyScanPaused;
+            if (fyScanPaused) {
+                fyStopScanTask();
+            } else {
+                // Re-init BLE if needed
+                if (!pFyScan) {
+                    releaseClassicBtMemory();
+                    BLEDevice::init("");
+                    delay(150);
+                    pFyScan = BLEDevice::getScan();
+                    if (pFyScan) {
+                        pFyScan->setActiveScan(true);
+                        pFyScan->setInterval(100);
+                        pFyScan->setWindow(99);
+                    }
+                }
+                fyStartScanTask();
+            }
+            fyDrawStatus();
+            fyDrawBottomButtons();
+            return;
+        }
+        // SAVE (center: x 90-150)
+        if (tx >= 90 && tx <= 150) {
+            fySaveLoot();
+            // Redraw full UI after SD operation
+            tft.fillScreen(HALEHOUND_BLACK);
+            drawStatusBar();
+            fyDrawIconBar();
+            fyDrawTitle();
+            fyDrawStatus();
+            fyDrawStats();
+            fyDrawDeviceList();
+            fyDrawBottomButtons();
+            return;
+        }
+        // BACK (right: x 170-230)
+        if (tx >= 170 && tx <= 230) {
+            fyExitRequested = true;
+            return;
+        }
+    }
+
+    // ── Device list tap (y 90 to SCREEN_HEIGHT-30) ──
+    if (ty >= 90 && ty < SCREEN_HEIGHT - 30 && fyDeviceCount > 0) {
+        int tappedRow = (ty - 90) / FY_LINE_HEIGHT;
+        int tappedIdx = tappedRow + fyScrollOffset;
+        if (tappedIdx >= 0 && tappedIdx < fyDeviceCount) {
+            fySelectedIdx = tappedIdx;
+            fyDetailView = true;
+            fyDrawDetail();
+            return;
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SETUP / LOOP / EXIT / CLEANUP
+// ═══════════════════════════════════════════════════════════════════════════
+
+void setup() {
+    if (fyInitialized) return;
+
+    Serial.println("[FLOCK] Initializing Flock Safety detector...");
+
+    // Reset all state
+    fyDeviceCount = 0;
+    fySelectedIdx = 0;
+    fyScrollOffset = 0;
+    fyDetailView = false;
+    fyExitRequested = false;
+    fyScanPaused = false;
+    fyAlertActive = false;
+    fyTotalDetections = 0;
+    fyTotalScans = 0;
+    fyDotCount = 0;
+    fyDotTimer = millis();
+    fyScanStartTime = millis();
+    fyLastUiUpdate = 0;
+    pFyScan = nullptr;
+    fyScanTaskHandle = NULL;
+    fyScanRunning = false;
+    fyScanStop = false;
+
+    // Draw initial UI
+    tft.fillScreen(HALEHOUND_BLACK);
+    drawStatusBar();
+    fyDrawIconBar();
+    fyDrawTitle();
+
+    // Init BLE
+    WiFi.mode(WIFI_OFF);
+    delay(50);
+
+    releaseClassicBtMemory();
+    BLEDevice::init("");
+    delay(150);
+
+    pFyScan = BLEDevice::getScan();
+    if (!pFyScan) {
+        Serial.println("[FLOCK] ERROR: getScan() returned NULL");
+        tft.setTextColor(HALEHOUND_HOTPINK);
+        tft.setCursor(10, 100);
+        tft.print("BLE INIT FAILED");
+        fyExitRequested = true;
+        return;
+    }
+    pFyScan->setActiveScan(true);
+    pFyScan->setInterval(100);
+    pFyScan->setWindow(99);
+
+    fyInitialized = true;
+
+    // Draw status and empty state
+    fyDrawStatus();
+    fyDrawStats();
+    fyDrawDeviceList();
+    fyDrawBottomButtons();
+
+    // Start scan task on Core 0
+    fyStartScanTask();
+
+    // Consume lingering touch from menu selection
+    waitForTouchRelease();
+
+    Serial.println("[FLOCK] Flock Safety detector ready");
+}
+
+void loop() {
+    if (!fyInitialized) return;
+
+    // Touch and button handling
+    touchButtonsUpdate();
+    fyHandleTouch();
+
+    // Button navigation
+    if (buttonPressed(BTN_BACK) || buttonPressed(BTN_BOOT)) {
+        if (fyDetailView) {
+            fyDetailView = false;
+            fyDrawStats();
+            fyDrawDeviceList();
+            fyDrawBottomButtons();
+        } else {
+            fyExitRequested = true;
+        }
+        return;
+    }
+
+    if (!fyDetailView) {
+        if (buttonPressed(BTN_UP)) {
+            if (fySelectedIdx > 0) {
+                fySelectedIdx--;
+                if (fySelectedIdx < fyScrollOffset) fyScrollOffset--;
+                fyDrawDeviceList();
+            }
+        }
+        if (buttonPressed(BTN_DOWN)) {
+            if (fySelectedIdx < fyDeviceCount - 1) {
+                fySelectedIdx++;
+                if (fySelectedIdx >= fyScrollOffset + FY_MAX_VISIBLE) fyScrollOffset++;
+                fyDrawDeviceList();
+            }
+        }
+        if (buttonPressed(BTN_SELECT) || buttonPressed(BTN_RIGHT)) {
+            if (fyDeviceCount > 0) {
+                fyDetailView = true;
+                fyDrawDetail();
+            }
+        }
+    } else {
+        if (buttonPressed(BTN_LEFT)) {
+            fyDetailView = false;
+            fyDrawStats();
+            fyDrawDeviceList();
+            fyDrawBottomButtons();
+        }
+    }
+
+    // Throttled UI refresh
+    if (millis() - fyLastUiUpdate >= FY_UI_REFRESH_MS) {
+        fyLastUiUpdate = millis();
+
+        // Animated dots for empty state
+        if (fyDeviceCount == 0 && millis() - fyDotTimer > 500) {
+            fyDotTimer = millis();
+            fyDotCount = (fyDotCount + 1) % 4;
+        }
+
+        if (!fyDetailView) {
+            fyDrawStatus();
+            fyDrawStats();
+            fyDrawDeviceList();
+        }
+
+        // Alert flash
+        fyDrawAlert();
+    }
+}
+
+bool isExitRequested() { return fyExitRequested; }
+
+void cleanup() {
+    // Stop scan task first
+    fyStopScanTask();
+
+    // Stop and deinit BLE
+    if (pFyScan) pFyScan->stop();
+    BLEDevice::deinit(false);
+    pFyScan = nullptr;
+
+    fyInitialized = false;
+    fyExitRequested = false;
+    fyDeviceCount = 0;
+
+    // Re-enable WiFi for other modules
+    WiFi.mode(WIFI_STA);
+
+    Serial.println("[FLOCK] Cleanup complete");
+}
+
+}  // namespace FlockYou

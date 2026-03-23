@@ -256,8 +256,8 @@ const unsigned char *jamdetect_submenu_icons[jamdetect_NUM_SUBMENU_ITEMS] = {
     bitmap_icon_go_back
 };
 
-// SIGINT Submenu - 7 items
-const int sigint_NUM_SUBMENU_ITEMS = 7;
+// SIGINT Submenu - 8 items
+const int sigint_NUM_SUBMENU_ITEMS = 8;
 const char *sigint_submenu_items[sigint_NUM_SUBMENU_ITEMS] = {
     "EAPOL Capture",
     "Karma Attack",
@@ -265,6 +265,7 @@ const char *sigint_submenu_items[sigint_NUM_SUBMENU_ITEMS] = {
     "Saved Captures",
     "IoT Recon",
     "Loot",
+    "Flock You",
     "Back to Main Menu"
 };
 
@@ -275,6 +276,7 @@ const unsigned char *sigint_submenu_icons[sigint_NUM_SUBMENU_ITEMS] = {
     bitmap_icon_floppy2,
     bitmap_icon_scanner,
     bitmap_icon_floppy,
+    bitmap_icon_scanner,
     bitmap_icon_go_back
 };
 
@@ -648,9 +650,9 @@ void displayMenu() {
         tft.setFreeFont(NULL);
     }
 
-    // Lock icon — top-right corner, only when PIN is enabled
+    // Lock icon — top-right, below battery indicator, only when PIN is enabled
     if (pin_enabled) {
-        tft.drawBitmap(SCREEN_WIDTH - 20, 2, bitmap_icon_eye2, 16, 16, HALEHOUND_HOTPINK);
+        tft.drawBitmap(SCREEN_WIDTH - 20, 14, bitmap_icon_eye2, 16, 16, HALEHOUND_HOTPINK);
     }
 
     drawStatusBar();
@@ -1611,7 +1613,7 @@ void handleSIGINTSubmenuTouch() {
             displaySubmenu();
             delay(200);
 
-            if (current_submenu_index == 6) { // Back
+            if (current_submenu_index == 7) { // Back
                 returnToMainMenu();
                 return;
             }
@@ -1684,6 +1686,15 @@ void handleSIGINTSubmenuTouch() {
                         if (IS_BOOT_PRESSED()) feature_exit_requested = true;
                     }
                     LootManager::cleanup();
+                    break;
+                case 6: // Flock You — Passive surveillance camera detector
+                    FlockYou::setup();
+                    while (!feature_exit_requested) {
+                        FlockYou::loop();
+                        if (FlockYou::isExitRequested()) feature_exit_requested = true;
+                        if (IS_BOOT_PRESSED()) { delay(200); feature_exit_requested = true; }
+                    }
+                    FlockYou::cleanup();
                     break;
             }
 
@@ -3836,8 +3847,8 @@ void handleButtons() {
             }
         }
 
-        // Lock icon tap — manual lock (top-right corner)
-        if (pin_enabled && isTouchInArea(SCREEN_WIDTH - 28, 0, 28, 22)) {
+        // Lock icon tap — manual lock (below battery indicator)
+        if (pin_enabled && isTouchInArea(SCREEN_WIDTH - 28, 14, 28, 20)) {
             device_locked = true;
             ledcWrite(0, 0);
             screen_asleep = true;
@@ -4311,11 +4322,10 @@ void setup() {
     }
 
     // Initialize battery monitor (ADC on GPIO 34)
-    // DISABLED — causes brownout on 3.5" CYD during jammer TX
-    // #if CYD_HAS_BATTERY
-    // batteryInit();
-    // Serial.println("[INIT] Battery monitor OK");
-    // #endif
+    #if CYD_HAS_BATTERY
+    batteryInit();
+    Serial.println("[INIT] Battery monitor OK");
+    #endif
 
     // Print system info
     Serial.printf("[INFO] Free Heap: %d\n", ESP.getFreeHeap());
@@ -4339,9 +4349,9 @@ void setup() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 void loop() {
-    // #if CYD_HAS_BATTERY
-    // batteryUpdate();
-    // #endif
+    #if CYD_HAS_BATTERY
+    batteryUpdate();
+    #endif
     handleButtons();
     delay(20);
 }
