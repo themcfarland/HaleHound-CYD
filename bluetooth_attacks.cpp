@@ -9484,6 +9484,7 @@ static void startReplay();
 static void stopReplay();
 static void startRecon();
 static void startHoneypot();
+static void buildGenericGATT();
 static void stopHoneypot();
 static void drawReconView();
 static void hpSetStatus(const char* msg, uint16_t color);
@@ -10004,13 +10005,18 @@ static void stopReplay() {
 
 static void drawReconView() {
     tft.fillRect(0, ICON_BAR_BOTTOM + 1, SCREEN_WIDTH, SCREEN_HEIGHT - ICON_BAR_BOTTOM - 1, HALEHOUND_BLACK);
-    drawGlitchText(SCALE_Y(55), "PREDATOR", &Nosifer_Regular10pt7b);
+    drawGlitchText(SCALE_Y(50), "PREDATOR", &Nosifer_Regular10pt7b);
 
     tft.setFreeFont(NULL);
     tft.setTextSize(1);
+
+    // Phase label — BELOW the Nosifer title
     tft.setTextColor(HALEHOUND_HOTPINK, HALEHOUND_BLACK);
-    tft.setCursor(SCALE_X(65), SCALE_Y(42));
+    tft.setCursor(SCALE_X(65), SCALE_Y(58));
     tft.print(">> RECON <<");
+
+    // Divider line between title and status area
+    tft.drawLine(0, SCALE_Y(66), SCREEN_WIDTH, SCALE_Y(66), HALEHOUND_HOTPINK);
 }
 
 static void drawReconStatus(int line, const char* msg, uint16_t color) {
@@ -10137,15 +10143,33 @@ static void startRecon() {
 
     bool connected = pClient->connect(addr, (esp_ble_addr_type_t)target->addrType);
 
+    // Retry with alternate address type if first attempt fails
+    if (!connected) {
+        esp_ble_addr_type_t altType;
+        if (target->addrType == BLE_ADDR_TYPE_PUBLIC) {
+            altType = BLE_ADDR_TYPE_RANDOM;
+        } else {
+            altType = BLE_ADDR_TYPE_PUBLIC;
+        }
+
+        drawReconStatus(1, "Retrying (alt addr type)...", HALEHOUND_HOTPINK);
+
+        #if CYD_DEBUG
+        Serial.printf("[PREDATOR] RECON: Retry with addr type %d\n", altType);
+        #endif
+
+        connected = pClient->connect(addr, altType);
+    }
+
     if (!connected) {
         drawReconStatus(1, "Connection failed!", 0xF800);
-        drawReconStatus(2, "Target may not accept GATT", HALEHOUND_GUNMETAL);
-        drawReconStatus(3, "Use REPLAY instead", HALEHOUND_GUNMETAL);
+        drawReconStatus(2, "Target not connectable", HALEHOUND_GUNMETAL);
+        drawReconStatus(3, "Use REPLAY attack instead", HALEHOUND_GUNMETAL);
         pClient = nullptr;  // deinit cleans up tracked clients
         BLEDevice::deinit(false);
         delay(2000);
 
-        // Re-init for scanning and go back to TARGET
+        // Go back to TARGET view
         releaseClassicBtMemory();
         BLEDevice::init("");
         delay(150);
@@ -10175,6 +10199,7 @@ static void startRecon() {
     std::map<std::string, BLERemoteService*>* svcMap = pClient->getServices();
     if (!svcMap || svcMap->empty()) {
         drawReconStatus(2, "No GATT services found!", 0xF800);
+        drawReconStatus(3, "Use REPLAY attack instead", HALEHOUND_GUNMETAL);
         pClient->disconnect();
         pClient = nullptr;  // deinit cleans up tracked clients
         BLEDevice::deinit(false);
@@ -10621,12 +10646,27 @@ static void hpStartAdvertising() {
     if (target->addrType == BLE_ADDR_TYPE_PUBLIC) {
         replayMac[0] |= 0xC0;  // Force random-static for public MAC
     }
-    esp_ble_gap_set_rand_addr(replayMac);
+
+    esp_err_t err;
+    err = esp_ble_gap_set_rand_addr(replayMac);
+    #if CYD_DEBUG
+    Serial.printf("[HP] set_rand_addr: %s\n", esp_err_to_name(err));
+    #endif
 
     // Send target's raw ADV payload
-    esp_ble_gap_config_adv_data_raw(target->payload,
+    err = esp_ble_gap_config_adv_data_raw(target->payload,
                                      target->payloadLen > 0 ? target->payloadLen : 31);
-    delay(1);
+    #if CYD_DEBUG
+    Serial.printf("[HP] config_adv_data_raw(%d bytes): %s\n",
+                  target->payloadLen > 0 ? target->payloadLen : 31, esp_err_to_name(err));
+    #endif
+
+    // Set empty scan response — prevents stale data or auto-generated name leaking
+    uint8_t emptyScanRsp[] = { 0x02, 0x01, 0x06 };  // Minimal: Flags only
+    esp_ble_gap_config_scan_rsp_data_raw(emptyScanRsp, sizeof(emptyScanRsp));
+
+    // Wait for async ADV data config to complete (longer than 1ms for reliability)
+    delay(50);
 
     // KEY DIFFERENCE: ADV_TYPE_IND = connectable undirected (not NONCONN_IND)
     esp_ble_adv_params_t advP;
@@ -10638,20 +10678,109 @@ static void hpStartAdvertising() {
     advP.channel_map = ADV_CHNL_ALL;
     advP.adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY;
 
-    esp_ble_gap_start_advertising(&advP);
-    S->hpAdvStarted = true;
+    err = esp_ble_gap_start_advertising(&advP);
+    if (err == ESP_OK) {
+        S->hpAdvStarted = true;
+        #if CYD_DEBUG
+        Serial.println("[HP] Connectable advertising started OK");
+        #endif
+    } else {
+        S->hpAdvStarted = false;
+        #if CYD_DEBUG
+        Serial.printf("[HP] start_advertising FAILED: %s\n", esp_err_to_name(err));
+        #endif
+        hpSetStatus("ADV start failed!", 0xF800);
+    }
+}
+
+// Build generic GATT profile when RECON fails (no target connection).
+// Creates standard services: Generic Access (0x1800) + Device Info (0x180A)
+// with common characteristics that attract service discovery from victims.
+static void buildGenericGATT() {
+    S->hpSvcCount = 0;
+    S->hpCharCount = 0;
+    memset(S->hpSvcs, 0, sizeof(S->hpSvcs));
+    memset(S->hpChars, 0, sizeof(S->hpChars));
+
+    // ── Service 0: Generic Access (0x1800) ──────────────────────────────
+    HpServiceInfo* svc0 = &S->hpSvcs[0];
+    svc0->uuid16 = 0x1800;
+    svc0->charStart = 0;
+    svc0->charCount = 2;
+
+    // Char 0: Device Name (0x2A00) — readable
+    HpCharInfo* c0 = &S->hpChars[0];
+    c0->uuid16 = 0x2A00;
+    c0->properties = ESP_GATT_CHAR_PROP_BIT_READ;
+    c0->svcIdx = 0;
+    // Use target name if available, else "BLE Device"
+    int realIdx = bpFilteredToReal(S->detailIdx);
+    const char* devName = "BLE Device";
+    if (realIdx >= 0 && S->devices[realIdx].name[0] != '\0') {
+        devName = S->devices[realIdx].name;
+    }
+    c0->cachedValLen = strlen(devName);
+    if (c0->cachedValLen > HP_MAX_READ_VAL) c0->cachedValLen = HP_MAX_READ_VAL;
+    memcpy(c0->cachedVal, devName, c0->cachedValLen);
+
+    // Char 1: Appearance (0x2A01) — readable, generic
+    HpCharInfo* c1 = &S->hpChars[1];
+    c1->uuid16 = 0x2A01;
+    c1->properties = ESP_GATT_CHAR_PROP_BIT_READ;
+    c1->svcIdx = 0;
+    c1->cachedVal[0] = 0x00;  // Generic category
+    c1->cachedVal[1] = 0x00;
+    c1->cachedValLen = 2;
+
+    // ── Service 1: Device Information (0x180A) ──────────────────────────
+    HpServiceInfo* svc1 = &S->hpSvcs[1];
+    svc1->uuid16 = 0x180A;
+    svc1->charStart = 2;
+    svc1->charCount = 3;
+
+    // Char 2: Manufacturer Name (0x2A29) — readable
+    HpCharInfo* c2 = &S->hpChars[2];
+    c2->uuid16 = 0x2A29;
+    c2->properties = ESP_GATT_CHAR_PROP_BIT_READ;
+    c2->svcIdx = 1;
+    const char* mfr = "Unknown";
+    c2->cachedValLen = strlen(mfr);
+    memcpy(c2->cachedVal, mfr, c2->cachedValLen);
+
+    // Char 3: Model Number (0x2A24) — readable
+    HpCharInfo* c3 = &S->hpChars[3];
+    c3->uuid16 = 0x2A24;
+    c3->properties = ESP_GATT_CHAR_PROP_BIT_READ;
+    c3->svcIdx = 1;
+    const char* model = "Generic";
+    c3->cachedValLen = strlen(model);
+    memcpy(c3->cachedVal, model, c3->cachedValLen);
+
+    // Char 4: Firmware Revision (0x2A26) — readable, writable (honeypot bait)
+    HpCharInfo* c4 = &S->hpChars[4];
+    c4->uuid16 = 0x2A26;
+    c4->properties = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_WRITE;
+    c4->svcIdx = 1;
+    const char* fwRev = "1.0.0";
+    c4->cachedValLen = strlen(fwRev);
+    memcpy(c4->cachedVal, fwRev, c4->cachedValLen);
+
+    S->hpSvcCount = 2;
+    S->hpCharCount = 5;
+    S->hpReconDone = true;
 
     #if CYD_DEBUG
-    Serial.println("[HP] Connectable advertising started");
+    Serial.printf("[HP] Generic GATT built: %d SVCs, %d CHARs (RECON skipped)\n",
+                  S->hpSvcCount, S->hpCharCount);
     #endif
 }
 
 static void startHoneypot() {
     if (!S->hpReconDone) return;
 
-    // Re-init BLE for GATTS server
+    // Re-init BLE for GATTS server — empty name to avoid leaking identity
     releaseClassicBtMemory();
-    BLEDevice::init("HaleHound");
+    BLEDevice::init("");
     delay(150);
 
     esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P9);
@@ -10737,17 +10866,20 @@ static void hpSetStatus(const char* msg, uint16_t color) {
 static void drawHoneypotStatic() {
     tft.setTextSize(1);
 
-    // Title
-    tft.fillRect(0, SCALE_Y(38), SCREEN_WIDTH, SCALE_H(20), HALEHOUND_BLACK);
-    drawGlitchText(SCALE_Y(55), "PREDATOR", &Nosifer_Regular10pt7b);
+    // Title area — clear enough space for Nosifer + phase label below
+    tft.fillRect(0, SCALE_Y(38), SCREEN_WIDTH, SCALE_H(30), HALEHOUND_BLACK);
+    drawGlitchText(SCALE_Y(50), "PREDATOR", &Nosifer_Regular10pt7b);
 
     tft.setFreeFont(NULL);
     tft.setTextSize(1);
 
-    // Phase label
+    // Phase label — BELOW the Nosifer title, not on top of it
     tft.setTextColor(HALEHOUND_HOTPINK, HALEHOUND_BLACK);
-    tft.setCursor(SCALE_X(55), SCALE_Y(42));
+    tft.setCursor(SCALE_X(55), SCALE_Y(58));
     tft.print(">> HONEYPOT <<");
+
+    // Divider line between title and target info
+    tft.drawLine(0, SCALE_Y(68), SCREEN_WIDTH, SCALE_Y(68), HALEHOUND_HOTPINK);
 
     // Target info
     int realIdx = bpFilteredToReal(S->detailIdx);
@@ -10756,7 +10888,7 @@ static void drawHoneypotStatic() {
         char macStr[18];
         bpMacToStr(target->mac, macStr, sizeof(macStr));
 
-        int y = SCALE_Y(66);
+        int y = SCALE_Y(72);
         tft.setTextColor(HALEHOUND_HOTPINK, HALEHOUND_BLACK);
         tft.setCursor(SCALE_X(5), y);
         tft.print("Clone: ");
@@ -10770,7 +10902,7 @@ static void drawHoneypotStatic() {
     }
 
     // ── Prominent status banner ────────────────────────────────────────
-    int bannerY = SCALE_Y(92);
+    int bannerY = SCALE_Y(98);
     tft.fillRect(0, bannerY, SCREEN_WIDTH, SCALE_H(18), HALEHOUND_DARK);
     tft.drawLine(0, bannerY, SCREEN_WIDTH, bannerY, HALEHOUND_VIOLET);
     tft.drawLine(0, bannerY + SCALE_H(17), SCREEN_WIDTH, bannerY + SCALE_H(17), HALEHOUND_VIOLET);
@@ -10815,7 +10947,7 @@ static void drawHoneypotLoot() {
     tft.setTextSize(1);
 
     // ── Status banner (between header and loot) ──────────────────────
-    int bannerY = SCALE_Y(92);
+    int bannerY = SCALE_Y(98);
     int bannerH = SCALE_H(18);
     tft.fillRect(1, bannerY + 1, SCREEN_WIDTH - 2, bannerH - 2, HALEHOUND_DARK);
 
