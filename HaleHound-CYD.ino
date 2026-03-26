@@ -923,7 +923,7 @@ void handleBluetoothSubmenuTouch() {
             displaySubmenu();
             delay(200);
 
-            if (current_submenu_index == 7) { // Back
+            if (current_submenu_index == 6) { // Back
                 returnToMainMenu();
                 return;
             }

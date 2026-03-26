@@ -22,6 +22,7 @@
 #include "utils.h"
 #include "icon.h"
 #include <SPI.h>
+#include <WiFi.h>
 
 // Free Fonts are already included via TFT_eSPI when LOAD_GFXFF is enabled
 // Available: FreeMonoBold9pt7b, FreeMonoBold12pt7b, FreeMonoBold18pt7b, etc.
@@ -830,6 +831,12 @@ static TaskHandle_t anaTaskHandle = NULL;
 // Scan data — promoted from scanAllChannels() local to namespace scope for Core 0 task
 static uint8_t anaChannel[ANA_CHANNELS] = {0};
 
+// AP-locked analyzer state — channel range restriction
+static volatile int lockStartNrf = 0;            // First NRF channel to scan (0 for full)
+static volatile int lockEndNrf = ANA_CHANNELS;   // Last NRF channel to scan (85 for full)
+static volatile int lockedWifiCh = 0;             // 0 = full scan, 1-14 = locked WiFi channel
+static char lockedSSID[20] = "";                  // Truncated SSID for title display
+
 // Skull types for waterfall - cycle through all 8
 static const unsigned char* skullTypes[] = {
     bitmap_icon_skull_wifi,
@@ -873,13 +880,18 @@ static void updateSkullWaterfall() {
         }
     }
 
-    // Average channels into skull columns for top row
-    int channelsPerSkull = ANA_CHANNELS / SKULL_COLS;  // 85 / 14 = 6 channels per skull
+    // Map scanned channel range into skull columns for top row
+    int rangeStart = lockStartNrf;
+    int rangeEnd = lockEndNrf;
+    int rangeCount = rangeEnd - rangeStart;
+    if (rangeCount <= 0) rangeCount = ANA_CHANNELS;
+    int channelsPerSkull = rangeCount / SKULL_COLS;
+    if (channelsPerSkull < 1) channelsPerSkull = 1;
 
     for (int col = 0; col < SKULL_COLS; col++) {
-        int startCh = col * channelsPerSkull;
+        int startCh = rangeStart + col * channelsPerSkull;
         int endCh = startCh + channelsPerSkull;
-        if (col == SKULL_COLS - 1) endCh = ANA_CHANNELS;  // Last skull gets remaining
+        if (col == SKULL_COLS - 1) endCh = rangeEnd;  // Last skull gets remaining
 
         // Find max signal in this range (more responsive than average)
         uint8_t maxLevel = 0;
@@ -940,6 +952,26 @@ static void drawSkullWaterfall() {
 }
 
 static void drawWiFiMarkers() {
+    if (lockedWifiCh > 0) {
+        // Locked mode: single center frequency marker for the locked WiFi channel
+        int rangeCount = lockEndNrf - lockStartNrf;
+        if (rangeCount <= 0) return;
+        int centerNrf = 7 + lockedWifiCh * 5;  // NRF channel at WiFi center freq
+        int centerX = GRAPH_X + ((centerNrf - lockStartNrf) * GRAPH_WIDTH / rangeCount);
+
+        for (int y = GRAPH_Y; y < GRAPH_Y + GRAPH_HEIGHT; y += 3) {
+            tft.drawPixel(centerX, y, HALEHOUND_HOTPINK);
+        }
+        tft.setTextColor(HALEHOUND_HOTPINK, TFT_BLACK);
+        tft.setTextSize(1);
+        char lbl[4];
+        snprintf(lbl, sizeof(lbl), "%d", lockedWifiCh);
+        tft.setCursor(centerX - 4, GRAPH_Y - 10);
+        tft.print(lbl);
+        return;
+    }
+
+    // Full scan mode: original channel markers
     int x1 = GRAPH_X + (WIFI_CH1 * GRAPH_WIDTH / ANA_CHANNELS);
     int x6 = GRAPH_X + (WIFI_CH6 * GRAPH_WIDTH / ANA_CHANNELS);
     int x11 = GRAPH_X + (WIFI_CH11 * GRAPH_WIDTH / ANA_CHANNELS);
@@ -972,12 +1004,26 @@ static void drawAxes() {
 
     tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
     tft.setTextSize(1);
-    tft.setCursor(GRAPH_X - 5, GRAPH_Y + GRAPH_HEIGHT + 3);
-    tft.print("2400");
-    tft.setCursor(GRAPH_X + GRAPH_WIDTH/2 - 15, GRAPH_Y + GRAPH_HEIGHT + 3);
-    tft.print("2442");
-    tft.setCursor(GRAPH_X + GRAPH_WIDTH - 25, GRAPH_Y + GRAPH_HEIGHT + 3);
-    tft.print("2484");
+
+    if (lockedWifiCh > 0) {
+        // Locked mode: show locked frequency range
+        int startFreq = 2400 + lockStartNrf;
+        int endFreq = 2400 + lockEndNrf;
+        int centerFreq = 2407 + lockedWifiCh * 5;
+        tft.setCursor(GRAPH_X - 5, GRAPH_Y + GRAPH_HEIGHT + 3);
+        tft.printf("%d", startFreq);
+        tft.setCursor(GRAPH_X + GRAPH_WIDTH/2 - 15, GRAPH_Y + GRAPH_HEIGHT + 3);
+        tft.printf("%d", centerFreq);
+        tft.setCursor(GRAPH_X + GRAPH_WIDTH - 25, GRAPH_Y + GRAPH_HEIGHT + 3);
+        tft.printf("%d", endFreq);
+    } else {
+        tft.setCursor(GRAPH_X - 5, GRAPH_Y + GRAPH_HEIGHT + 3);
+        tft.print("2400");
+        tft.setCursor(GRAPH_X + GRAPH_WIDTH/2 - 15, GRAPH_Y + GRAPH_HEIGHT + 3);
+        tft.print("2442");
+        tft.setCursor(GRAPH_X + GRAPH_WIDTH - 25, GRAPH_Y + GRAPH_HEIGHT + 3);
+        tft.print("2484");
+    }
 
     tft.drawLine(0, WATERFALL_Y - 2, SCREEN_WIDTH, WATERFALL_Y - 2, HALEHOUND_HOTPINK);
 }
@@ -999,8 +1045,15 @@ static void drawSpectrum() {
     tft.fillRect(GRAPH_X, GRAPH_Y, GRAPH_WIDTH, GRAPH_HEIGHT, TFT_BLACK);
     drawWiFiMarkers();
 
-    for (int i = 0; i < ANA_CHANNELS; i++) {
-        int x = GRAPH_X + (i * GRAPH_WIDTH / ANA_CHANNELS);
+    // Determine scan range (full or AP-locked)
+    int rangeStart = lockStartNrf;
+    int rangeEnd = lockEndNrf;
+    int rangeCount = rangeEnd - rangeStart;
+    if (rangeCount <= 0) rangeCount = ANA_CHANNELS;
+
+    for (int i = rangeStart; i < rangeEnd; i++) {
+        int barIdx = i - rangeStart;
+        int x = GRAPH_X + (barIdx * GRAPH_WIDTH / rangeCount);
 
         // Use peak_levels for sticky bars - SAME SCALING AS SCANNER
         int barH = (peak_levels[i] * GRAPH_HEIGHT) / 125;
@@ -1010,7 +1063,7 @@ static void drawSpectrum() {
         if (barH > 0) {
             int barY = GRAPH_Y + GRAPH_HEIGHT - barH;
 
-            // Gradient bar - MATCHES SCANNER STYLE
+            // Gradient bar - ALWAYS 2px wide (same as full scan)
             for (int y = 0; y < barH; y++) {
                 uint16_t color = getAnalyzerBarColor(y, GRAPH_HEIGHT);
                 tft.drawFastHLine(x, barY + barH - 1 - y, 2, color);
@@ -1056,6 +1109,21 @@ static void resetPeaks() {
     clearSkullWaterfall();
 }
 
+// Set AP channel lock — restricts NRF24 scan to WiFi channel's 22 MHz band
+static void setChannelLock(int wifiCh) {
+    lockedWifiCh = wifiCh;
+    if (wifiCh == 0) {
+        lockStartNrf = 0;
+        lockEndNrf = ANA_CHANNELS;
+        lockedSSID[0] = '\0';
+    } else {
+        // WiFi ch center = 2407 + ch*5 MHz, NRF ch = freq - 2400
+        int center = 7 + wifiCh * 5;
+        lockStartNrf = (center - 11 >= 0) ? (center - 11) : 0;
+        lockEndNrf = (center + 11 <= ANA_CHANNELS) ? (center + 11) : ANA_CHANNELS;
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DUAL-CORE ANALYZER — FreeRTOS task on Core 0
 // Same architecture as Scanner scanTask and SubGHz Analyzer (saScanTask)
@@ -1086,12 +1154,15 @@ static void anaTask(void* param) {
         }
 
         if (analyzerRunning) {
-            // Single pass scan with exponential smoothing — matches original scanAllChannels()
-            for (int ch = 0; ch < ANA_CHANNELS; ch++) {
+            // Scan channel range — full (0-84) or AP-locked subset
+            int startCh = lockStartNrf;
+            int endCh = lockEndNrf;
+            int dwellUs = (lockedWifiCh > 0) ? 200 : 50;  // Longer dwell when locked for better resolution
+            for (int ch = startCh; ch < endCh; ch++) {
                 if (!anaTaskRunning) break;
                 nrfSetChannel(ch);
                 nrfSetRX();
-                delayMicroseconds(50);  // Keep existing dwell — RPD accuracy fix is separate
+                delayMicroseconds(dwellUs);
                 nrfDisable();
 
                 int rpd = nrfCarrierDetected() ? 1 : 0;
@@ -1151,9 +1222,12 @@ static void drawStatusArea() {
     int statusY = WATERFALL_Y + WATERFALL_HEIGHT + 4;
     tft.fillRect(0, statusY, SCREEN_WIDTH, 20, TFT_BLACK);
 
-    int peakCh = 0;
+    // Find peak channel within scanned range
+    int rangeStart = lockStartNrf;
+    int rangeEnd = lockEndNrf;
+    int peakCh = rangeStart;
     uint8_t peakVal = 0;
-    for (int i = 0; i < ANA_CHANNELS; i++) {
+    for (int i = rangeStart; i < rangeEnd; i++) {
         if (peak_levels[i] > peakVal) {
             peakVal = peak_levels[i];
             peakCh = i;
@@ -1163,7 +1237,291 @@ static void drawStatusArea() {
     tft.setTextColor(HALEHOUND_MAGENTA, TFT_BLACK);
     tft.setTextSize(1);
     tft.setCursor(5, statusY + 5);
-    tft.printf("Peak:%dMHz Lv:%d", 2400 + peakCh, peakVal);
+    if (lockedWifiCh > 0) {
+        tft.printf("Ch%d:%.8s Peak:%dMHz Lv:%d", lockedWifiCh, lockedSSID, 2400 + peakCh, peakVal);
+    } else {
+        tft.printf("Peak:%dMHz Lv:%d", 2400 + peakCh, peakVal);
+    }
+}
+
+// Signal bars — same as WifiScan (green/yellow/red, 4 bars)
+static void drawApSignalBars(int x, int y, int rssi) {
+    int bars = 0;
+    if (rssi >= -50) bars = 4;
+    else if (rssi >= -60) bars = 3;
+    else if (rssi >= -70) bars = 2;
+    else if (rssi >= -80) bars = 1;
+
+    uint16_t color;
+    if (bars >= 3) color = 0x07E0;       // Green
+    else if (bars >= 2) color = 0xFFE0;  // Yellow
+    else color = 0xF800;                  // Red
+
+    int barX = x;
+    for (int i = 0; i < 4; i++) {
+        int barH = 3 + (i * 2);
+        int barY = y + (9 - barH);
+        if (i < bars) {
+            tft.fillRect(barX, barY, 3, barH, color);
+        } else {
+            tft.fillRect(barX, barY, 3, barH, HALEHOUND_GUNMETAL);
+        }
+        barX += 4;
+    }
+}
+
+// Draw analyzer icon bar — replaces icon 0 (undo) with wifi icon for AP Select
+static void drawAnalyzerIconBar() {
+    tft.drawLine(0, ICON_BAR_TOP, SCREEN_WIDTH, ICON_BAR_TOP, HALEHOUND_MAGENTA);
+    tft.fillRect(0, ICON_BAR_Y, SCREEN_WIDTH, ICON_BAR_H, HALEHOUND_GUNMETAL);
+    // Back icon at position 2
+    tft.drawBitmap(nrfIconX[2], ICON_BAR_Y, bitmap_icon_go_back, NRF_ICON_SIZE, NRF_ICON_SIZE, HALEHOUND_MAGENTA);
+    // AP Select (wifi) icon at position 0 — NOT undo
+    tft.drawBitmap(nrfIconX[0], ICON_BAR_Y, bitmap_icon_wifi, NRF_ICON_SIZE, NRF_ICON_SIZE, HALEHOUND_MAGENTA);
+    // Start/Stop icon at position 1
+    tft.drawBitmap(nrfIconX[1], ICON_BAR_Y, bitmap_icon_start, NRF_ICON_SIZE, NRF_ICON_SIZE, HALEHOUND_MAGENTA);
+    // Title text between back icon and action icons
+    tft.setTextColor(HALEHOUND_MAGENTA);
+    tft.setTextSize(1);
+    tft.setCursor(30, ICON_BAR_Y + 4);
+    if (lockedWifiCh > 0) {
+        char title[25];
+        snprintf(title, sizeof(title), "Ch%d: %.12s", lockedWifiCh, lockedSSID);
+        tft.print(title);
+    } else {
+        tft.print("2.4GHz ANALYZER");
+    }
+    tft.drawLine(0, ICON_BAR_BOTTOM, SCREEN_WIDTH, ICON_BAR_BOTTOM, HALEHOUND_HOTPINK);
+}
+
+// Draw AP select screen icon bar
+static void drawApSelectIconBar() {
+    tft.drawLine(0, ICON_BAR_TOP, SCREEN_WIDTH, ICON_BAR_TOP, HALEHOUND_MAGENTA);
+    tft.fillRect(0, ICON_BAR_Y, SCREEN_WIDTH, ICON_BAR_H, HALEHOUND_DARK);
+    tft.drawBitmap(10, ICON_BAR_Y, bitmap_icon_go_back, NRF_ICON_SIZE, NRF_ICON_SIZE, HALEHOUND_MAGENTA);
+    tft.setTextColor(HALEHOUND_HOTPINK);
+    tft.setTextSize(1);
+    tft.setCursor(30, ICON_BAR_Y + 4);
+    tft.print("AP SELECT");
+    tft.drawLine(0, ICON_BAR_BOTTOM, SCREEN_WIDTH, ICON_BAR_BOTTOM, HALEHOUND_HOTPINK);
+}
+
+// AP Select screen — WiFi scan, show AP list, lock analyzer to selected channel
+static void showAPSelectScreen() {
+    // Stop NRF24 Core 0 task first — releases SPI
+    stopAnaTask();
+    waitForTouchRelease();
+    delay(200);
+
+    // Full screen redraw with AP Select icon bar
+    tft.fillScreen(HALEHOUND_BLACK);
+    drawStatusBar();
+    drawApSelectIconBar();
+    drawCenteredText(CONTENT_Y_START + 40, "Scanning WiFi APs...", HALEHOUND_HOTPINK, 1);
+
+    // Quick WiFi scan
+    WiFi.mode(WIFI_STA);
+    delay(100);
+    int apCount = WiFi.scanNetworks(false, true);  // Blocking, show hidden
+
+    if (apCount > 0) {
+        if (apCount > 30) apCount = 30;
+
+        // List layout — matches WifiScan format
+        #define AP_ITEM_HEIGHT SCALE_H(17)
+        const int listY = CONTENT_Y_START + 2;
+        const int btnH = 18;
+        const int navY = SCREEN_HEIGHT - btnH - 4;
+        const int maxVisible = (navY - listY) / AP_ITEM_HEIGHT;
+        int totalItems = apCount + 1;  // +1 for "ALL CHANNELS" at top
+        int page = 0;
+        int totalPages = (totalItems + maxVisible - 1) / maxVisible;
+        int maxSSID = (SCREEN_WIDTH > 240) ? 14 : 11;
+        bool selected = false;
+
+        while (!selected) {
+            // Clear list area
+            tft.fillRect(0, CONTENT_Y_START, SCREEN_WIDTH, SCREEN_HEIGHT - CONTENT_Y_START, TFT_BLACK);
+
+            int startIdx = page * maxVisible;
+            int endIdx = startIdx + maxVisible;
+            if (endIdx > totalItems) endIdx = totalItems;
+
+            for (int i = startIdx; i < endIdx; i++) {
+                int y = listY + (i - startIdx) * AP_ITEM_HEIGHT;
+
+                if (i == 0) {
+                    // "ALL CHANNELS" unlock option
+                    bool isCurrent = (lockedWifiCh == 0);
+                    if (isCurrent) {
+                        tft.fillRect(0, y - 1, SCREEN_WIDTH, AP_ITEM_HEIGHT, HALEHOUND_DARK);
+                    }
+                    tft.setTextColor(HALEHOUND_HOTPINK);
+                    tft.setTextSize(1);
+                    tft.setCursor(3, y + 2);
+                    tft.print(">> ALL CHANNELS (Full 85ch)");
+                } else {
+                    int apIdx = i - 1;
+                    String ssid = WiFi.SSID(apIdx);
+                    if (ssid.length() == 0) ssid = "(Hidden)";
+                    int ch = WiFi.channel(apIdx);
+                    int rssi = WiFi.RSSI(apIdx);
+                    int enc = WiFi.encryptionType(apIdx);
+                    bool isCurrent = (lockedWifiCh > 0 && ch == lockedWifiCh);
+
+                    // Selection highlight
+                    if (isCurrent) {
+                        tft.fillRect(0, y - 1, SCREEN_WIDTH, AP_ITEM_HEIGHT, HALEHOUND_DARK);
+                    }
+
+                    // Encryption badge (2 chars, color-coded) — matches WifiScan
+                    tft.setTextSize(1);
+                    tft.setCursor(3, y + 2);
+                    if (enc == WIFI_AUTH_OPEN) {
+                        tft.setTextColor(0x07E0);   // Green = OPEN
+                        tft.print("OP");
+                    } else if (enc == WIFI_AUTH_WEP) {
+                        tft.setTextColor(0xFD20);   // Orange = WEP
+                        tft.print("WE");
+                    } else {
+                        tft.setTextColor(isCurrent ? HALEHOUND_HOTPINK : HALEHOUND_MAGENTA);
+                        tft.print("WP");
+                    }
+
+                    // SSID (truncated)
+                    tft.setCursor(22, y + 2);
+                    tft.setTextColor(isCurrent ? HALEHOUND_HOTPINK : HALEHOUND_BRIGHT);
+                    String dispSSID = ssid.substring(0, maxSSID);
+                    tft.print(dispSSID);
+                    if ((int)ssid.length() > maxSSID) tft.print("..");
+
+                    // Channel number
+                    tft.setCursor(SCALE_X(150), y + 2);
+                    tft.setTextColor(isCurrent ? HALEHOUND_HOTPINK : HALEHOUND_VIOLET);
+                    if (ch < 10) tft.print(" ");
+                    tft.print(ch);
+
+                    // Signal bars
+                    drawApSignalBars(SCREEN_WIDTH - 22, y + 2, rssi);
+                }
+            }
+
+            // PREV/NEXT buttons — matches WifiScan style (rounded rects)
+            if (totalPages > 1) {
+                int btnW = 50;
+
+                // Page indicator
+                tft.setTextColor(HALEHOUND_BRIGHT);
+                tft.setCursor(SCREEN_WIDTH / 2 - 20, navY + 5);
+                char pgBuf[8];
+                snprintf(pgBuf, sizeof(pgBuf), "%d/%d", page + 1, totalPages);
+                tft.print(pgBuf);
+
+                // PREV button
+                if (page > 0) {
+                    tft.fillRoundRect(10, navY, btnW, btnH, 3, HALEHOUND_DARK);
+                    tft.drawRoundRect(10, navY, btnW, btnH, 3, HALEHOUND_MAGENTA);
+                    tft.setTextColor(HALEHOUND_MAGENTA);
+                    tft.setCursor(18, navY + 5);
+                    tft.print("PREV");
+                }
+
+                // NEXT button
+                if (page < totalPages - 1) {
+                    tft.fillRoundRect(SCREEN_WIDTH - btnW - 10, navY, btnW, btnH, 3, HALEHOUND_DARK);
+                    tft.drawRoundRect(SCREEN_WIDTH - btnW - 10, navY, btnW, btnH, 3, HALEHOUND_HOTPINK);
+                    tft.setTextColor(HALEHOUND_HOTPINK);
+                    tft.setCursor(SCREEN_WIDTH - btnW + 2, navY + 5);
+                    tft.print("NEXT");
+                }
+            }
+
+            // Touch handling — wait for selection or navigation
+            while (true) {
+                touchButtonsUpdate();
+                uint16_t tx, ty;
+                if (getTouchPoint(&tx, &ty)) {
+                    waitForTouchRelease();
+                    delay(150);
+
+                    // Back icon in icon bar
+                    if (ty >= ICON_BAR_TOUCH_TOP && ty <= ICON_BAR_TOUCH_BOTTOM && tx < 40) {
+                        selected = true;
+                        break;
+                    }
+
+                    // PREV/NEXT buttons
+                    if (totalPages > 1 && ty >= (uint16_t)navY && ty <= (uint16_t)(navY + btnH)) {
+                        if (tx < SCREEN_WIDTH / 3 && page > 0) { page--; break; }
+                        else if (tx > SCREEN_WIDTH * 2 / 3 && page < totalPages - 1) { page++; break; }
+                        continue;
+                    }
+
+                    // List item tap
+                    if (ty >= (uint16_t)listY && ty < (uint16_t)navY) {
+                        int tappedIdx = page * maxVisible + (ty - listY) / AP_ITEM_HEIGHT;
+
+                        if (tappedIdx == 0) {
+                            // ALL CHANNELS — unlock
+                            setChannelLock(0);
+                            selected = true;
+                            break;
+                        } else if (tappedIdx - 1 < apCount) {
+                            int apIdx = tappedIdx - 1;
+                            int ch = WiFi.channel(apIdx);
+                            String ssid = WiFi.SSID(apIdx);
+                            if (ssid.length() == 0) ssid = "(Hidden)";
+                            setChannelLock(ch);
+                            strncpy(lockedSSID, ssid.c_str(), sizeof(lockedSSID) - 1);
+                            lockedSSID[sizeof(lockedSSID) - 1] = '\0';
+                            selected = true;
+                            break;
+                        }
+                    }
+                    continue;
+                }
+
+                // Hardware button — cancel, keep current lock
+                if (buttonPressed(BTN_BACK) || buttonPressed(BTN_BOOT)) {
+                    selected = true;
+                    break;
+                }
+                delay(20);
+            }
+        }
+        #undef AP_ITEM_HEIGHT
+    } else {
+        // No APs found — show message and wait for tap
+        tft.fillRect(0, CONTENT_Y_START, SCREEN_WIDTH, SCREEN_HEIGHT - CONTENT_Y_START, TFT_BLACK);
+        drawCenteredText(CONTENT_Y_START + 40, "No APs Found", HALEHOUND_MAGENTA, 1);
+        drawCenteredText(CONTENT_Y_START + 60, "Tap to return", HALEHOUND_GUNMETAL, 1);
+        while (true) {
+            touchButtonsUpdate();
+            uint16_t tx, ty;
+            if (getTouchPoint(&tx, &ty) || buttonPressed(BTN_BACK) || buttonPressed(BTN_BOOT)) {
+                waitForTouchRelease();
+                break;
+            }
+            delay(20);
+        }
+    }
+
+    // Cleanup WiFi
+    WiFi.scanDelete();
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+
+    // Reset peak data for fresh view with new channel range
+    resetPeaks();
+    memset(anaChannel, 0, sizeof(anaChannel));
+
+    // Redraw full analyzer UI
+    tft.fillScreen(HALEHOUND_BLACK);
+    drawStatusBar();
+    drawAnalyzerIconBar();
+    drawAxes();
+    lastSkullTime = millis();
+    startAnaTask();
 }
 
 void analyzerSetup() {
@@ -1172,17 +1530,15 @@ void analyzerSetup() {
     nrfAnimState = 0;
     nrfActiveIcon = -1;
 
+    // Reset AP lock state
+    lockedWifiCh = 0;
+    lockStartNrf = 0;
+    lockEndNrf = ANA_CHANNELS;
+    lockedSSID[0] = '\0';
+
     tft.fillScreen(HALEHOUND_BLACK);
     drawStatusBar();
-
-    // Title
-    tft.fillRect(0, ICON_BAR_Y, SCALE_X(200), ICON_BAR_H, HALEHOUND_GUNMETAL);
-    tft.setTextColor(HALEHOUND_MAGENTA);
-    tft.setTextSize(1);
-    tft.setCursor(SCALE_X(25), ICON_BAR_Y + 4);
-    tft.print("2.4GHz SPECTRUM ANALYZER");
-
-    drawNrfIconBar();
+    drawAnalyzerIconBar();
 
     if (!nrfInit()) {
         tft.setTextColor(HALEHOUND_HOTPINK);
@@ -1233,18 +1589,9 @@ void analyzerLoop() {
                 exitRequested = true;
                 return;
             }
-            // Reset peaks icon
+            // AP Select icon (was Reset peaks — now opens WiFi AP picker)
             if (tx >= nrfIconX[0] - 10 && tx < nrfIconX[0] + NRF_ICON_SIZE + 10) {
-                stopAnaTask();  // Stop Core 0 task — releases SPI
-                waitForTouchRelease();
-                delay(200);
-                // Reset all data and redraw statics
-                resetPeaks();
-                memset(anaChannel, 0, sizeof(anaChannel));
-                tft.fillRect(GRAPH_X, GRAPH_Y, GRAPH_WIDTH, GRAPH_HEIGHT, TFT_BLACK);
-                tft.fillRect(GRAPH_X, WATERFALL_Y, GRAPH_WIDTH, WATERFALL_HEIGHT, TFT_BLACK);
-                drawAxes();
-                startAnaTask();  // Restart Core 0 scan
+                showAPSelectScreen();
                 return;
             }
             // Start/Stop icon
@@ -1292,6 +1639,11 @@ void cleanup() {
     analyzerRunning = false;
     exitRequested = false;
     waterfall_initialized = false;
+    // Reset AP lock state
+    lockedWifiCh = 0;
+    lockStartNrf = 0;
+    lockEndNrf = ANA_CHANNELS;
+    lockedSSID[0] = '\0';
 }
 
 }  // namespace Analyzer

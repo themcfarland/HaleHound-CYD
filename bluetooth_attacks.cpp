@@ -10749,9 +10749,9 @@ static void drawHoneypotLoot() {
         // Helpful hint
         tft.setTextColor(HALEHOUND_GUNMETAL, HALEHOUND_BLACK);
         tft.setCursor(SCALE_X(15), lootY + lootH / 3 + SCALE_H(16));
-        tft.print("Connect with nRF Connect app");
+        tft.print("Luring nearby BLE devices");
         tft.setCursor(SCALE_X(15), lootY + lootH / 3 + SCALE_H(30));
-        tft.print("to test WRITE capture");
+        tft.print("Captures on connect/write");
         return;
     }
 
