@@ -26,6 +26,17 @@
   #endif
 #endif
 
+// ESP32-3248S035C inherits CYD_35 display — same ST7796, 320x480
+// Touch is GT911 capacitive (I2C) — NOT XPT2046 resistive
+#ifdef CYD_3248S035C
+  #ifndef CYD_35
+    #define CYD_35
+  #endif
+  #ifndef CYD_CAP_TOUCH
+    #define CYD_CAP_TOUCH
+  #endif
+#endif
+
 #if !defined(CYD_28) && !defined(CYD_35)
   #define CYD_28    // Default: ESP32-2432S028 - 2.8" 320x240 ILI9341
 #endif
@@ -36,7 +47,10 @@
 
 #define FW_VERSION "v3.4.0"
 
-#ifdef CYD_35
+#ifdef CYD_3248S035C
+  #define FW_EDITION   "CYD35C Edition"
+  #define FW_DEVICE    "HaleHound-CYD35C"
+#elif defined(CYD_35)
   #define FW_EDITION   "E32R35T Edition"
   #define FW_DEVICE    "HaleHound-E32R35T"
 #elif defined(NMRF_HAT)
@@ -78,6 +92,12 @@
   #define CYD_TFT_BL        27    // Backlight on GPIO27
 #endif
 
+#ifdef CYD_3248S035C
+  // Override board name for capacitive touch variant
+  #undef  CYD_BOARD_NAME
+  #define CYD_BOARD_NAME    "HaleHound-CYD35C 3.5\""
+#endif
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DISPLAY PINS (HSPI) - Same for both boards
 // ═══════════════════════════════════════════════════════════════════════════
@@ -89,23 +109,32 @@
 #define CYD_TFT_RST     -1    // Connected to EN reset
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TOUCH CONTROLLER (XPT2046)
+// TOUCH CONTROLLER (XPT2046 resistive / GT911 capacitive)
 // ═══════════════════════════════════════════════════════════════════════════
 
-#define CYD_TOUCH_CS    33
-#define CYD_TOUCH_IRQ   36    // Same on both boards
+#ifdef CYD_CAP_TOUCH
+  // ESP32-3248S035C: GT911 capacitive touch via I2C
+  // No SPI touch pins — GT911 uses I2C on dedicated pins
+  #define GT911_SDA     33    // I2C data (was XPT2046 TOUCH_CS on resistive boards)
+  #define GT911_SCL     32    // I2C clock
+  #define GT911_RST     25    // Reset (active low)
+  #define GT911_INT     0xFF  // INT not connected (R25 not populated on 3248S035C)
+#else
+  #define CYD_TOUCH_CS    33
+  #define CYD_TOUCH_IRQ   36    // Same on both boards
 
-#ifdef CYD_28
-  // 2.8" has SEPARATE touch SPI bus
-  #define CYD_TOUCH_MOSI  32
-  #define CYD_TOUCH_MISO  39
-  #define CYD_TOUCH_CLK   25
-#endif
+  #ifdef CYD_28
+    // 2.8" has SEPARATE touch SPI bus
+    #define CYD_TOUCH_MOSI  32
+    #define CYD_TOUCH_MISO  39
+    #define CYD_TOUCH_CLK   25
+  #endif
 
-#ifdef CYD_35
-  // E32R35T: XPT2046 resistive touch on SHARED HSPI with LCD
-  // Handled by TFT_eSPI built-in driver (TOUCH_CS in User_Setup.h)
-  // No separate touch SPI — CLK/MOSI/MISO shared on GPIO 14/13/12
+  #ifdef CYD_35
+    // E32R35T: XPT2046 resistive touch on SHARED HSPI with LCD
+    // Handled by TFT_eSPI built-in driver (TOUCH_CS in User_Setup.h)
+    // No separate touch SPI — CLK/MOSI/MISO shared on GPIO 14/13/12
+  #endif
 #endif
 
 // ═══════════════════════════════════════════════════════════════════════════

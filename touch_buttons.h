@@ -15,6 +15,9 @@
 #ifndef CYD_35
   #include "CYD28_TouchscreenR.h"
 #endif
+#ifdef CYD_CAP_TOUCH
+  #include "TAMC_GT911.h"
+#endif
 #include <TFT_eSPI.h>
 #include "cyd_config.h"
 
