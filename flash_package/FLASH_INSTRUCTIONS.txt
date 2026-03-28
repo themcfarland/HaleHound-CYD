@@ -1,6 +1,6 @@
 ================================================================================
               HALEHOUND-CYD FLASH INSTRUCTIONS
-              v3.4.0 CYD Edition
+              v3.5.1 CYD Edition
 ================================================================================
 
   Repository:   https://github.com/JesseCHale/HaleHound-CYD
@@ -41,15 +41,19 @@ to compensate. This is NOT a landscape mode.
   CHOOSE YOUR BOARD
 ================================================================================
 
-Four boards are supported. Use the correct firmware file for your board.
+Five boards are supported. Use the correct firmware file for your board.
 
   CYD 2.8" (ESP32-2432S028):
     Single file:  HaleHound-CYD-FULL.bin
     Four file:    HaleHound-CYD.bin
 
-  QDtech E32R35T (3.5"):
+  QDtech E32R35T (3.5" Resistive Touch):
     Single file:  HaleHound-E32R35T-FULL.bin
     Four file:    HaleHound-E32R35T.bin
+
+  ESP32-3248S035C (3.5" Capacitive Touch):
+    Single file:  HaleHound-CYD35C-FULL.bin
+    Four file:    HaleHound-CYD35C.bin
 
   NM-RF-Hat:
     Single file:  HaleHound-CYD-HAT-FULL.bin
@@ -202,9 +206,13 @@ Replace "HaleHound-CYD" below with your board's filename from above.
     HaleHound-CYD-FULL.bin ......... 0x0 (single file, complete image)
     HaleHound-CYD.bin .............. 0x10000 (firmware only, 4-file method)
 
-  QDtech E32R35T (3.5"):
+  QDtech E32R35T (3.5" Resistive Touch):
     HaleHound-E32R35T-FULL.bin ..... 0x0 (single file, complete image)
     HaleHound-E32R35T.bin .......... 0x10000 (firmware only, 4-file method)
+
+  ESP32-3248S035C (3.5" Capacitive Touch):
+    HaleHound-CYD35C-FULL.bin ...... 0x0 (single file, complete image)
+    HaleHound-CYD35C.bin ........... 0x10000 (firmware only, 4-file method)
 
   NM-RF-Hat:
     HaleHound-CYD-HAT-FULL.bin ..... 0x0 (single file, complete image)
