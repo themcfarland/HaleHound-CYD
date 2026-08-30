@@ -29,7 +29,7 @@
 
 **Multi-protocol offensive security toolkit for the ESP32 Cheap Yellow Display**
 
-Version **v3.9.4** | By [JesseCHale](https://github.com/JesseCHale) | [HaleHound.com](https://halehound.com)
+Version **v3.9.5** | By [JesseCHale](https://github.com/JesseCHale) | [HaleHound.com](https://halehound.com)
 
 [![Flash in your browser](https://img.shields.io/badge/%E2%9A%A1%20FLASH%20IN%20YOUR%20BROWSER-flash.halehound.com-ff2d95?style=for-the-badge&labelColor=1a1a1a)](https://flash.halehound.com)
 
@@ -63,7 +63,7 @@ All UI scales automatically between 240x320 and 320x480. Pick your board, flash,
 | Module | What It Does |
 |--------|-------------|
 | CYD board (any above) | Base platform — ESP32 + touchscreen + SD card |
-| CC1101 (HW-863 or E07-433M20S) | SubGHz radio: 300-928 MHz capture, replay, flood, brute force |
+| CC1101 (HW-863 or E07-433M20S) | SubGHz radio: 300-439 MHz capture, replay, flood, brute force |
 | NRF24L01+PA+LNA | 2.4GHz radio: BLE flood, WLAN flood, MouseJack, spectrum analysis |
 | PN532 V3 (Elechouse, SPI mode) | NFC/RFID: card scan, read, clone, brute force, emulate |
 | GPS (GT-U7 or NEO-6M) | Wardriving, Flock You geolocation, live satellite view |
@@ -95,7 +95,7 @@ The signal wires (SPI, CS, CE, GDO0, GDO2, TX_EN, RX_EN) still connect directly 
 ## Menu Tree
 
 ```
-HALEHOUND-CYD v3.9.4
+HALEHOUND-CYD v3.9.5
 │
 ├── WiFi
 │   ├── Packet Monitor         Real-time 802.11 frame capture + graph
@@ -120,7 +120,8 @@ HALEHOUND-CYD v3.9.4
 │   │   ├── Phantom Flood │    Fake FindMy advertisement flood
 │   │   ├── AirTag Replay │    Sniff + replay real AirTag identity
 │   │   └── AirTag Scream │    Force nearby AirTags to play a sound
-│   └── SkeletonKey            BLE GATT enumerate + fuzz — smart-lock opener
+│   ├── SkeletonKey            BLE GATT enumerate + fuzz — smart-lock opener
+│   └── KARR                   Detect + assess KARR/QT car alarms
 │
 ├── 2.4GHz (NRF24)
 │   ├── Scanner                Channel activity across 2400-2525 MHz
@@ -132,7 +133,7 @@ HALEHOUND-CYD v3.9.4
 │   └── Proto Kill             Multi-protocol 2.4GHz attack suite
 │
 ├── SubGHz (CC1101)
-│   ├── Replay Attack          Record + replay RF signals (300-928 MHz)
+│   ├── Replay Attack          Target hunts, capture + replay (300-439 MHz)
 │   ├── Brute Force            Automated code gen (Princeton/CAME/Nice/PT2262)
 │   ├── SubGHz Jammer           Wideband SubGHz disruption
 │   ├── Spectrum Analyzer      33-bar spectrum, peak-hold, band focus, noise-floor cal
@@ -215,6 +216,7 @@ All BLE uses the ESP32's built-in Bluetooth. Proper WiFi↔BLE radio teardown ha
 - **WhisperPair** — CVE-2025-36911. Probes Google Fast Pair devices for unauthorized pairing vulnerability.
 - **Lunatic Fringe** — Hub for tracker detection and attacks. Scans for AirTags, Samsung SmartTags, Tile, Chipolo, Google FMDN. Phantom Flood spams fake FindMy trackers. AirTag Replay clones real AirTag identities. AirTag Scream forces nearby AirTags to play a sound.
 - **SkeletonKey** — Connect to a BLE device, enumerate its full GATT table, and fire real commands. Recognizes LED-strip and smart-device profiles for one-tap control, or fuzz any writable characteristic. Chains straight from BLE Predator's recon.
+- **KARR** — Scan for SouthWest Dealer Services BLE car alarms, then assess the unit. It works out which generation it is and whether it is exploitable, and reports a straight verdict without sending any commands.
 
 ### 2.4GHz (NRF24)
 
@@ -229,7 +231,7 @@ External NRF24L01+PA+LNA required. All modes at RF24_PA_MAX (+20 dBm with PA mod
 
 External CC1101 required. All TX at setPA(12) max power. Optional E07-433M20S PA module for 20dBm amplified output.
 
-- **Replay Attack** — Record and replay SubGHz signals. RSSI gating, drain loop, repeat validation. Save profiles to SD.
+- **Replay Attack** — Opens on a target picker with seven curated hunts, each carrying its own tuning and an on-device playbook. Band-locked capture, one-press KeeLoq read, color-coded state banner, and REPLAY/SAVE/CLEAR controls. Sixty-four saved signals on SD, plus raw OOK pulse dumps for offline reversing.
 - **Brute Force** — Automated code generation with de Bruijn sequences. Princeton, CAME, Nice FLO, PT2262.
 - **Tesla Charge** — Opens the charge port on any Tesla. Static 43-byte OOK payload, zero authentication, zero rolling code. Works on every Tesla ever made. US (315 MHz), EU (433.92 MHz), or both.
 - **.Sub Read** — Browse and transmit Flipper Zero .sub files from SD card. Supports RAW, Princeton, CAME, Nice FLO across full CC1101 frequency range. No .sub files required — shows empty state if folder is missing. Drop files in `/subghz/` when you have them.
